@@ -2,6 +2,7 @@
 
 import type { Level } from "@/game/bot";
 import { TARGET, type Mode } from "@/game/match";
+import { SoundToggle } from "./SoundToggle";
 import { strings, type Lang } from "./strings";
 
 const LEVEL_STYLE: Record<Level, string> = {
@@ -59,9 +60,12 @@ export function Menu({
           )}
         </div>
 
-        <div className="mt-6 flex items-center justify-between text-sm font-semibold">
-          <span>{t.firstTo(TARGET)}</span>
-          <button onClick={onLang} className="tracking-widest uppercase underline-offset-4 hover:underline">
+        <p className="mt-5 text-sm font-semibold">
+          {t.firstTo(TARGET)}. {t.powersNote}.
+        </p>
+        <div className="mt-3 flex items-center justify-center gap-5 text-sm font-semibold">
+          <SoundToggle lang={lang} className="cursor-pointer tracking-widest uppercase underline-offset-4 hover:underline" />
+          <button onClick={onLang} className="cursor-pointer tracking-widest uppercase underline-offset-4 hover:underline">
             {t.lang}
           </button>
         </div>

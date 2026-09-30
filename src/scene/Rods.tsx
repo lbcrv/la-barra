@@ -39,11 +39,14 @@ export function Rods({
   inputs,
   ball,
   slidesRef,
+  speedRef,
 }: {
   inputs: RefObject<Inputs>;
   ball: RefObject<BallHandle | null>;
   /** Where each rod sits, written every step so the bot can see its own players. */
   slidesRef: RefObject<number[]>;
+  /** Power-up multiplier on each side's rod speed. */
+  speedRef: RefObject<Record<Side, number>>;
 }) {
   const bodies = useRef<(RapierRigidBody | null)[]>([]);
   const slides = slidesRef;
@@ -99,10 +102,11 @@ export function Rods({
 
     RODS.forEach((rod, i) => {
       const input = inputs.current[rod.team];
+      const boost = speedRef.current[rod.team];
       let target = slides.current[i];
       if (input.pointerZ !== null) target = slideToward(rod, input.pointerZ);
-      else if (input.keyDir !== 0) target = clampSlide(rod, target + input.keyDir * KEY_SPEED * dt);
-      const step = ROD_SPEED * dt;
+      else if (input.keyDir !== 0) target = clampSlide(rod, target + input.keyDir * KEY_SPEED * boost * dt);
+      const step = ROD_SPEED * boost * dt;
       slides.current[i] += Math.max(-step, Math.min(step, target - slides.current[i]));
 
       const kicking = input.kick && current.current[rod.team] === i;

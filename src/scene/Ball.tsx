@@ -19,6 +19,10 @@ export interface BallHandle {
   position: () => { x: number; y: number; z: number } | null;
   /** Position and velocity on the table plane, or null when parked. */
   state: () => BallState | null;
+  /** Multiplies the ball's speed, for a power-up kick. */
+  boost: (factor: number) => void;
+  /** Scales how quickly the ball slows down: below 1 is ice. */
+  setDamping: (factor: number) => void;
 }
 
 /** Where the ball waits between points: under the table, out of sight. */
@@ -34,10 +38,12 @@ export const Ball = forwardRef<
   BallHandle,
   {
     onDead: () => void;
-    /** The ball was struck or bounced hard; `strength` is the speed it gained, in m/s. */
-    onHit?: (strength: number, kind: "kick" | "wall") => void;
+    /** The ball was struck or bounced hard; `strength` is the speed it gained, `vx` where it now heads. */
+    onHit?: (strength: number, kind: "kick" | "wall", vx: number) => void;
+    /** On fire: an orange trail and a glow. */
+    hot?: boolean;
   }
->(function Ball({ onDead, onHit }, ref) {
+>(function Ball({ onDead, onHit, hot = false }, ref) {
   const body = useRef<RapierRigidBody>(null);
   const lastSpeed = useRef(0);
   const still = useRef(0);
@@ -78,6 +84,17 @@ export const Ball = forwardRef<
       const v = b.linvel();
       return { x: p.x, z: p.z, vx: v.x, vz: v.z };
     },
+    boost(factor) {
+      const b = body.current;
+      if (!b || !b.isEnabled()) return;
+      const v = b.linvel();
+      b.setLinvel({ x: v.x * factor, y: v.y, z: v.z * factor }, true);
+      // The jump this makes is the power-up's, not a new kick.
+      lastSpeed.current = Math.hypot(v.x, v.z) * factor;
+    },
+    setDamping(factor) {
+      body.current?.setLinearDamping(BALL.damping * factor);
+    },
     park() {
       const b = body.current;
       if (!b) return;
@@ -103,9 +120,9 @@ export const Ball = forwardRef<
     const speed = Math.hypot(v.x, v.z);
     // A sudden gain in speed is a kick; a sudden loss near a wall is a bounce.
     const jump = speed - lastSpeed.current;
-    if (onHit && jump > HIT_JUMP) onHit(jump, "kick");
-    else if (onHit && jump < -HIT_JUMP) onHit(-jump, "wall");
     lastSpeed.current = speed;
+    if (onHit && jump > HIT_JUMP) onHit(jump, "kick", v.x);
+    else if (onHit && jump < -HIT_JUMP) onHit(-jump, "wall", v.x);
     still.current = speed < 0.02 ? still.current + dt : 0;
     // Stuck, or somehow off the table: either way the point is over.
     if (still.current > DEAD_AFTER || b.translation().y < -0.3) {
@@ -125,10 +142,10 @@ export const Ball = forwardRef<
       userData={{ name: "ball" }}
     >
       <BallCollider args={[BALL.radius]} mass={BALL.mass} restitution={BALL.restitution} friction={BALL.friction} />
-      <Trail width={0.035} length={4} decay={2.2} color="#fff3cf" attenuation={(w) => w * w}>
+      <Trail width={hot ? 0.06 : 0.035} length={hot ? 7 : 4} decay={2.2} color={hot ? "#ff7a1a" : "#fff3cf"} attenuation={(w) => w * w}>
         <mesh castShadow>
           <sphereGeometry args={[BALL.radius, 32, 24]} />
-          <meshToonMaterial color="#fff6e0" gradientMap={toonGradient()} />
+          <meshToonMaterial color={hot ? "#ffd27a" : "#fff6e0"} gradientMap={toonGradient()} emissive="#ff6a00" emissiveIntensity={hot ? 0.6 : 0} />
           <Outlines thickness={OUTLINE_PX} color={INK} />
         </mesh>
       </Trail>

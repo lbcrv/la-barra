@@ -5,21 +5,26 @@ import { Physics } from "@react-three/rapier";
 import { Suspense, useCallback, useEffect, useRef, useState } from "react";
 import { Bot, type Level } from "@/game/bot";
 import { idleInputs, type Inputs } from "@/game/input";
-import { goal, newMatch, resume, type Match, type Mode } from "@/game/match";
+import { goal, matchPoint, newMatch, resume, type Match, type Mode } from "@/game/match";
+import { Narrator, type Call } from "@/game/narrator";
+import { effects, kickerOf, take, type ActivePower, type Power } from "@/game/powerups";
 import { RODS } from "@/game/rods";
 import { PHYSICS_HZ } from "@/game/table";
-import type { Side } from "@/game/teams";
+import { TEAMS, type Side } from "@/game/teams";
 import { Hud, Victory } from "@/ui/Hud";
 import { Menu } from "@/ui/Menu";
+import { Radio } from "@/ui/Radio";
 import { type Lang } from "@/ui/strings";
 import { Aim } from "./Aim";
 import { Backdrop } from "./Backdrop";
 import { Ball, type BallHandle } from "./Ball";
 import { BotDriver } from "./BotDriver";
 import { Confetti } from "./Confetti";
+import { PowerField } from "./PowerField";
 import { CameraRig, Fill, Lamp } from "./Room";
 import { Rods } from "./Rods";
 import { Scoreboard } from "./Scoreboard";
+import { play as sfx } from "./sound";
 import { Table } from "./Table";
 
 /** Pause after a goal before the next ball rolls in, so the goal can land. */
@@ -40,6 +45,14 @@ const KEYS: Record<string, { team: Side; dir?: -1 | 1; kick?: true }> = {
   ArrowLeft: { team: "blue", kick: true },
 };
 
+/** How long Don Chepe's line stays up, and the least time between two "big shot" calls. */
+const LINE_MS = 3200;
+const BIG_SHOT_GAP_MS = 6000;
+/** A kick that adds this much speed (m/s) is a big shot. */
+const BIG_SHOT = 3.2;
+
+const now = () => performance.now() / 1000;
+
 /** Which sides a person plays in each mode; the rest are bots. */
 const HUMANS: Record<Mode | "demo", Side[]> = { demo: [], bot: ["red"], local: ["red", "blue"], online: ["red", "blue"] };
 
@@ -51,6 +64,17 @@ export function Game() {
   // Each goal fires a confetti burst from the net it went into.
   const [burst, setBurst] = useState<{ n: number; scorer: Side | null; conceded: Side | null }>({ n: 0, scorer: null, conceded: null });
   const shake = useRef(0);
+  const [powers, setPowers] = useState<ActivePower[]>([]);
+  const powersRef = useRef<ActivePower[]>([]);
+  const rodSpeed = useRef<Record<Side, number>>({ red: 1, blue: 1 });
+  const [hot, setHot] = useState(false);
+  // The side that touched the ball last, credited with any cap it rolls over.
+  const lastKicker = useRef<Side | null>(null);
+  const [line, setLine] = useState<{ text: string; id: number } | null>(null);
+  const narrator = useRef(new Narrator());
+  const langRef = useRef<Lang>("es");
+  const lineTimer = useRef(0);
+  const lastBigShot = useRef(0);
 
   const ball = useRef<BallHandle>(null);
   const inputs = useRef<Inputs>(idleInputs());
@@ -78,7 +102,22 @@ export function Game() {
 
   const serve = useCallback(() => {
     if (scored.current) return;
+    lastKicker.current = null;
     ball.current?.serve();
+  }, []);
+
+  /** Don Chepe says something, during matches only. */
+  const say = useCallback((call: Call) => {
+    if (!matchRef.current) return;
+    const text = narrator.current.line(call, langRef.current, (side) => TEAMS[side].name);
+    setLine((l) => ({ text, id: (l?.id ?? 0) + 1 }));
+    window.clearTimeout(lineTimer.current);
+    lineTimer.current = window.setTimeout(() => setLine(null), LINE_MS);
+  }, []);
+
+  const setActivePowers = useCallback((next: ActivePower[]) => {
+    powersRef.current = next;
+    setPowers(next);
   }, []);
 
   /** Clears the table and hands each side to a person or a bot for the new mode. */
@@ -89,6 +128,10 @@ export function Game() {
       ball.current?.park();
       inputs.current = idleInputs();
       aiming.current = false;
+      setActivePowers([]);
+      lastKicker.current = null;
+      window.clearTimeout(lineTimer.current);
+      setLine(null);
       // Back to the playing view, wherever the demo left the camera.
       setView((v) => v + 1);
       const humans = HUMANS[mode];
@@ -97,15 +140,17 @@ export function Game() {
         .map((s) => new Bot(s, mode === "demo" ? "normal" : level));
       later(FIRST_BALL_MS, () => ball.current?.serve());
     },
-    [clearTimers, later],
+    [clearTimers, later, setActivePowers],
   );
 
   const play = useCallback(
     (mode: Mode, level: Level) => {
       setUp(mode, level);
       update(newMatch(mode, level));
+      sfx("whistle");
+      say({ kind: "kickoff" });
     },
-    [setUp, update],
+    [setUp, update, say],
   );
 
   const toMenu = useCallback(() => {
@@ -121,17 +166,80 @@ export function Game() {
       setBurst((b) => ({ n: b.n + 1, scorer: conceded === "red" ? "blue" : "red", conceded }));
       const m = matchRef.current;
       const next = m ? goal(m, conceded) : null;
-      if (next) update(next);
+      if (next) {
+        update(next);
+        sfx("goal");
+        later(350, () => sfx("bead"));
+        if (next.phase === "over") {
+          say({ kind: "win", winner: next.last! });
+          later(900, () => sfx("whistle"));
+        } else {
+          say({ kind: "goal", scorer: next.last! });
+        }
+      }
       later(NEXT_BALL_MS, () => {
         ball.current?.park();
         scored.current = false;
         if (next?.phase === "over") return;
-        if (next) update(resume(next));
-        ball.current?.serve();
+        if (next) {
+          update(resume(next));
+          const leader = (["red", "blue"] as const).find((side) => matchPoint(next, side));
+          if (leader) say({ kind: "matchPoint", side: leader });
+        }
+        serve();
       });
     },
-    [later, update],
+    [later, update, say, serve],
   );
+
+  const onHit = useCallback(
+    (strength: number, kind: "kick" | "wall", vx: number) => {
+      if (kind === "wall") {
+        sfx("wall", strength / 3);
+        return;
+      }
+      const kicker = kickerOf(vx);
+      lastKicker.current = kicker;
+      sfx("kick", strength / 4);
+      const boost = effects(powersRef.current, now()).kickBoost[kicker];
+      if (boost > 1) ball.current?.boost(boost);
+      if (strength > 2) shake.current = Math.max(shake.current, Math.min(0.45, strength / 10));
+      if (strength > BIG_SHOT && performance.now() - lastBigShot.current > BIG_SHOT_GAP_MS) {
+        lastBigShot.current = performance.now();
+        say({ kind: "bigShot" });
+      }
+    },
+    [say],
+  );
+
+  const onTake = useCallback(
+    (power: Power) => {
+      const side = lastKicker.current;
+      if (!side) return;
+      setActivePowers(take(powersRef.current, power, side, now()));
+      sfx("power");
+      say({ kind: "power", power, side });
+    },
+    [say, setActivePowers],
+  );
+
+  // Powers run on the clock: apply their effects and drop them as they wear off.
+  useEffect(() => {
+    const id = window.setInterval(() => {
+      const t = now();
+      const e = effects(powersRef.current, t);
+      rodSpeed.current = e.rodSpeed;
+      ball.current?.setDamping(e.ballDamping);
+      setHot(e.kickBoost.red > 1 || e.kickBoost.blue > 1);
+      const live = powersRef.current.filter((p) => p.until > t);
+      if (live.length !== powersRef.current.length) setActivePowers(live);
+    }, 100);
+    return () => window.clearInterval(id);
+  }, [setActivePowers]);
+
+  useEffect(() => {
+    langRef.current = lang;
+  }, [lang]);
 
   // The demo starts once the physics world is ready.
   useEffect(() => {
@@ -238,26 +346,24 @@ export function Game() {
         <Backdrop />
         <Scoreboard score={match?.score ?? { red: 0, blue: 0 }} />
         <Confetti burst={burst.n} side={burst.scorer} goalOf={burst.conceded} />
+        <PowerField running={match?.phase === "playing"} ballRef={ball} onTake={onTake} />
         <Lamp />
         <Aim aimingRef={aiming} onAim={(z) => (inputs.current.red.pointerZ = z)} />
         <Suspense fallback={null}>
           <Physics gravity={[0, -9.81, 0]} timeStep={1 / PHYSICS_HZ}>
             <Table onGoal={onGoal} />
-            <Ball
-              ref={ball}
-              onDead={serve}
-              onHit={(strength, kind) => {
-                if (kind === "kick" && strength > 2) shake.current = Math.max(shake.current, Math.min(0.45, strength / 10));
-              }}
-            />
+            <Ball ref={ball} onDead={serve} onHit={onHit} hot={hot} />
             <BotDriver botsRef={bots} inputsRef={inputs} ballRef={ball} slidesRef={slides} />
-            <Rods inputs={inputs} ball={ball} slidesRef={slides} />
+            <Rods inputs={inputs} ball={ball} slidesRef={slides} speedRef={rodSpeed} />
           </Physics>
         </Suspense>
       </Canvas>
 
       {!match && <Menu lang={lang} onLang={toggleLang} onPlay={play} />}
-      {match && <Hud lang={lang} match={match} onMenu={toMenu} onCamera={() => setView((v) => v + 1)} onLang={toggleLang} />}
+      {match && (
+        <Hud lang={lang} match={match} onMenu={toMenu} onCamera={() => setView((v) => v + 1)} onLang={toggleLang} powers={powers} />
+      )}
+      {match && <Radio lang={lang} line={line} />}
       {match?.phase === "over" && <Victory lang={lang} match={match} onRematch={() => play(match.mode, match.level)} onMenu={toMenu} />}
     </div>
   );

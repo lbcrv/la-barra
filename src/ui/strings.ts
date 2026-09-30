@@ -1,4 +1,5 @@
 import type { Level } from "@/game/bot";
+import type { Power } from "@/game/powerups";
 
 export type Lang = "es" | "en";
 
@@ -24,6 +25,10 @@ export const strings = {
     menu: "Menú",
     resetView: "Cámara",
     lang: "English",
+    sound: { on: "Sonido: sí", off: "Sonido: no" },
+    radio: "En la radio",
+    powers: { fuego: "Fuego", turbo: "Turbo", oxido: "Óxido", hielo: "Hielo" } satisfies Record<Power, string>,
+    powersNote: "Pasa la pelota sobre las corcholatas para agarrar poderes",
   },
   en: {
     title: "La Barra",
@@ -46,6 +51,10 @@ export const strings = {
     menu: "Menu",
     resetView: "Camera",
     lang: "Español",
+    sound: { on: "Sound: on", off: "Sound: off" },
+    radio: "On the radio",
+    powers: { fuego: "Fire", turbo: "Turbo", oxido: "Rust", hielo: "Ice" } satisfies Record<Power, string>,
+    powersNote: "Roll the ball over the bottle caps to grab powers",
   },
 } as const satisfies Record<Lang, unknown>;
 
