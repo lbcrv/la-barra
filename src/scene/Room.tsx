@@ -101,9 +101,9 @@ const LOWEST_VIEW = (22 * Math.PI) / 180;
  * Frames the table for the screen and lets the player move the camera: right
  * button (or two fingers) orbits, the wheel (or a pinch) zooms. The left button
  * and a single finger stay free for play. `resetKey` changing puts the camera
- * back where it started. The room's fog always sits behind the furthest view.
+ * back where it started; `spin` turns it slowly around the table. The room's fog always sits behind the furthest view.
  */
-export function CameraRig({ resetKey }: { resetKey: number }) {
+export function CameraRig({ resetKey, spin = false }: { resetKey: number; spin?: boolean }) {
   const { camera, size } = useThree();
   const controls = useRef<OrbitControlsImpl>(null);
   const fov = "fov" in camera ? camera.fov : 38;
@@ -127,6 +127,9 @@ export function CameraRig({ resetKey }: { resetKey: number }) {
         enablePan={false}
         enableDamping
         dampingFactor={0.12}
+        // Behind the menu the table turns slowly, like a machine waiting for a coin.
+        autoRotate={spin}
+        autoRotateSpeed={0.35}
         rotateSpeed={0.6}
         zoomSpeed={0.7}
         minDistance={0.6}

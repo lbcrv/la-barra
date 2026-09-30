@@ -1,14 +1,16 @@
 # La Barra
 
-A 3D table football (futbolito) game for the browser: one player against a bot, or two players on the same screen. Red, Atlético La Esquina, against blue, Real Pulpería.
+An arcade 3D table football (futbolito) game for the browser, set in a Honduran corner shop: one player against a bot, two players on one screen, or two players online with a room code. Red, Atlético La Esquina, against blue, Real Pulpería.
 
 ## Project rules
 
 - **No AI slop.** No emojis anywhere (UI, copy, README, commits). No purple gradients, glassmorphism, sparkle icons or "AI-powered" badges. Copy is plain and concrete.
-- **The look is a real table in a pulpería.** Worn wood, painted field with chipped lines, hand-painted players, a single warm bulb overhead, the dark room around it. Score is kept with abacus beads like real tables. Everything is modelled or drawn in code; no stock 3D models, no generated images.
+- **The look is a cartoon of the barrio.** Toon shading with thick ink outlines, chunky big-headed players that squash and stretch when they kick, saturated shop colours (painted wood, green field, red and blue teams, warm bulb light). Juice on every hit: ball trail, screen shake, comic-book "¡GOOOL!" lettering. Score is kept with abacus beads like real tables. Everything is modelled or drawn in code; no stock 3D models, no generated images.
+- **Arcade, but fair.** Short matches (first to 5), power-ups that drop onto the table, a narrator with short Honduran lines. Power-ups change the ball or the rods for a few seconds; they never decide a goal on their own.
+- **Physics stays real under the cartoon.** The exaggeration is visual. The ball, rods and kicks keep the real-scale physics below.
 - **Real proportions.** Physics runs in metres with a real table's measurements (field 1.20 x 0.68 m, 35 mm ball). Constants live in `src/game/table.ts`; never hardcode a dimension in a component.
 - **Controls stay simple.** The rod nearest the ball is picked automatically. Mouse or finger slides it, click or tap kicks. Two players share a keyboard: W/S + D, and arrows up/down + left.
-- **Costs $0.** Static site on Vercel's free tier. No paid services, no servers needed for local play.
+- **Costs $0.** Static site on Vercel's free tier. No paid services and no server of our own: online play is peer to peer, with the host's browser running the physics.
 - **Spanish first.** Player-facing text is Spanish, with English as a toggle. README is English.
 - **Invented teams only.** No real club names, crests or brands.
 

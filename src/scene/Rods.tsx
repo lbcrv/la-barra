@@ -31,9 +31,18 @@ const Z_AXIS = new Vector3(0, 0, 1);
  * asking for (the pointer, the keys or the bot), and the side's active rod,
  * the one nearest the ball, turns through its kick.
  */
-export function Rods({ inputs, ball }: { inputs: RefObject<Inputs>; ball: RefObject<BallHandle | null> }) {
+export function Rods({
+  inputs,
+  ball,
+  slidesRef,
+}: {
+  inputs: RefObject<Inputs>;
+  ball: RefObject<BallHandle | null>;
+  /** Where each rod sits, written every step so the bot can see its own players. */
+  slidesRef: RefObject<number[]>;
+}) {
   const bodies = useRef<(RapierRigidBody | null)[]>([]);
-  const slides = useRef(RODS.map(() => 0));
+  const slides = slidesRef;
   const kicks = useRef(RODS.map(() => restingKick()));
   const current = useRef<Record<Side, number | null>>({ red: null, blue: null });
   // Mirrors `current` for rendering the highlighted handle; updated only when it changes.
@@ -51,7 +60,7 @@ export function Rods({ inputs, ball }: { inputs: RefObject<Inputs>; ball: RefObj
       bodies: bodies.current.map((b) => (b ? { t: b.translation(), r: b.rotation() } : null)),
     });
     (window as unknown as { __kick?: unknown }).__kick = KICK;
-  }, []);
+  }, [slides]);
 
   useBeforePhysicsStep((world) => {
     const dt = world.timestep;

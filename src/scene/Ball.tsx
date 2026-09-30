@@ -3,6 +3,7 @@
 import { useFrame } from "@react-three/fiber";
 import { BallCollider, RigidBody, type RapierRigidBody } from "@react-three/rapier";
 import { forwardRef, useEffect, useImperativeHandle, useRef } from "react";
+import type { BallState } from "@/game/bot";
 import { BALL, SERVE } from "@/game/table";
 
 export interface BallHandle {
@@ -14,6 +15,8 @@ export interface BallHandle {
   park: () => void;
   /** Where the ball is now, or null when parked. */
   position: () => { x: number; y: number; z: number } | null;
+  /** Position and velocity on the table plane, or null when parked. */
+  state: () => BallState | null;
 }
 
 /** Where the ball waits between points: under the table, out of sight. */
@@ -54,6 +57,13 @@ export const Ball = forwardRef<BallHandle, { onDead: () => void }>(function Ball
       if (!b || !b.isEnabled()) return null;
       const p = b.translation();
       return { x: p.x, y: p.y, z: p.z };
+    },
+    state() {
+      const b = body.current;
+      if (!b || !b.isEnabled()) return null;
+      const p = b.translation();
+      const v = b.linvel();
+      return { x: p.x, z: p.z, vx: v.x, vz: v.z };
     },
     park() {
       const b = body.current;

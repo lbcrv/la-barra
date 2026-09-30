@@ -3,19 +3,25 @@
 import { Canvas } from "@react-three/fiber";
 import { Physics } from "@react-three/rapier";
 import { Suspense, useCallback, useEffect, useRef, useState } from "react";
+import { Bot, type Level } from "@/game/bot";
 import { idleInputs, type Inputs } from "@/game/input";
+import { goal, newMatch, resume, type Match, type Mode } from "@/game/match";
+import { RODS } from "@/game/rods";
 import { PHYSICS_HZ } from "@/game/table";
-import { TEAMS, type Side } from "@/game/teams";
-import { strings, type Lang } from "@/ui/strings";
+import type { Side } from "@/game/teams";
+import { Hud, Victory } from "@/ui/Hud";
+import { Menu } from "@/ui/Menu";
+import { type Lang } from "@/ui/strings";
 import { Aim } from "./Aim";
 import { Ball, type BallHandle } from "./Ball";
+import { BotDriver } from "./BotDriver";
 import { CameraRig, Fill, Lamp } from "./Room";
 import { Rods } from "./Rods";
 import { Table } from "./Table";
 
 /** Pause after a goal before the next ball rolls in, so the goal can land. */
-const NEXT_BALL_MS = 1400;
-/** Pause before the first ball, so the table is on screen before play starts. */
+const NEXT_BALL_MS = 1600;
+/** Pause before a match's first ball. */
 const FIRST_BALL_MS = 900;
 
 /**
@@ -31,39 +37,108 @@ const KEYS: Record<string, { team: Side; dir?: -1 | 1; kick?: true }> = {
   ArrowLeft: { team: "blue", kick: true },
 };
 
+/** Which sides a person plays in each mode; the rest are bots. */
+const HUMANS: Record<Mode | "demo", Side[]> = { demo: [], bot: ["red"], local: ["red", "blue"], online: ["red", "blue"] };
+
 export function Game() {
   const [lang, setLang] = useState<Lang>("es");
-  const [score, setScore] = useState<Record<Side, number>>({ red: 0, blue: 0 });
-  const [flash, setFlash] = useState<Side | null>(null);
+  // Null while the menu is up and the bots play a demo behind it.
+  const [match, setMatch] = useState<Match | null>(null);
   const [view, setView] = useState(0);
+
   const ball = useRef<BallHandle>(null);
   const inputs = useRef<Inputs>(idleInputs());
+  const slides = useRef<number[]>(RODS.map(() => 0));
+  const bots = useRef<Bot[]>([new Bot("red", "normal"), new Bot("blue", "normal")]);
+  const matchRef = useRef<Match | null>(null);
+  const timers = useRef<number[]>([]);
   // Red follows the mouse once it moves over the table, until a key takes over.
   const aiming = useRef(false);
-  // A ball can rattle around the pocket; one goal per ball.
+  // One goal per ball: a ball can rattle around the pocket.
   const scored = useRef(false);
-  const t = strings[lang];
+
+  const later = useCallback((ms: number, fn: () => void) => {
+    timers.current.push(window.setTimeout(fn, ms));
+  }, []);
+  const clearTimers = useCallback(() => {
+    timers.current.forEach((id) => window.clearTimeout(id));
+    timers.current = [];
+  }, []);
+
+  const update = useCallback((m: Match | null) => {
+    matchRef.current = m;
+    setMatch(m);
+  }, []);
 
   const serve = useCallback(() => {
     if (scored.current) return;
     ball.current?.serve();
   }, []);
 
-  const goal = useCallback((conceded: Side) => {
-    if (scored.current) return;
-    scored.current = true;
-    const scorer: Side = conceded === "red" ? "blue" : "red";
-    setScore((s) => ({ ...s, [scorer]: s[scorer] + 1 }));
-    setFlash(scorer);
-    window.setTimeout(() => {
-      ball.current?.park();
-      setFlash(null);
+  /** Clears the table and hands each side to a person or a bot for the new mode. */
+  const setUp = useCallback(
+    (mode: Mode | "demo", level: Level) => {
+      clearTimers();
       scored.current = false;
-      ball.current?.serve();
-    }, NEXT_BALL_MS);
-  }, []);
+      ball.current?.park();
+      inputs.current = idleInputs();
+      aiming.current = false;
+      // Back to the playing view, wherever the demo left the camera.
+      setView((v) => v + 1);
+      const humans = HUMANS[mode];
+      bots.current = (["red", "blue"] as const)
+        .filter((s) => !humans.includes(s))
+        .map((s) => new Bot(s, mode === "demo" ? "normal" : level));
+      later(FIRST_BALL_MS, () => ball.current?.serve());
+    },
+    [clearTimers, later],
+  );
 
-  // Development only: lets a test script roll the ball anywhere, e.g. straight into a goal.
+  const play = useCallback(
+    (mode: Mode, level: Level) => {
+      setUp(mode, level);
+      update(newMatch(mode, level));
+    },
+    [setUp, update],
+  );
+
+  const toMenu = useCallback(() => {
+    setUp("demo", "normal");
+    update(null);
+  }, [setUp, update]);
+
+  const onGoal = useCallback(
+    (conceded: Side) => {
+      if (scored.current) return;
+      scored.current = true;
+      const m = matchRef.current;
+      const next = m ? goal(m, conceded) : null;
+      if (next) update(next);
+      later(NEXT_BALL_MS, () => {
+        ball.current?.park();
+        scored.current = false;
+        if (next?.phase === "over") return;
+        if (next) update(resume(next));
+        ball.current?.serve();
+      });
+    },
+    [later, update],
+  );
+
+  // The demo starts once the physics world is ready.
+  useEffect(() => {
+    const id = window.setInterval(() => {
+      if (!ball.current) return;
+      window.clearInterval(id);
+      toMenu();
+    }, 100);
+    return () => {
+      window.clearInterval(id);
+      clearTimers();
+    };
+  }, [toMenu, clearTimers]);
+
+  // Development only: lets a test script drive the table.
   useEffect(() => {
     if (process.env.NODE_ENV === "production") return;
     (window as unknown as { __barra?: unknown }).__barra = {
@@ -73,18 +148,10 @@ export function Game() {
         aiming.current = false;
         inputs.current.red.pointerZ = z;
       },
+      play,
+      match: () => matchRef.current,
     };
-  }, []);
-
-  // The first ball rolls in by itself once the physics world is ready.
-  useEffect(() => {
-    const id = window.setInterval(() => {
-      if (!ball.current) return;
-      window.clearInterval(id);
-      window.setTimeout(serve, FIRST_BALL_MS);
-    }, 100);
-    return () => window.clearInterval(id);
-  }, [serve]);
+  }, [play]);
 
   useEffect(() => {
     // Keys held per side, so releasing W while S is still down keeps sliding toward S.
@@ -93,14 +160,18 @@ export function Game() {
       const h = held[team];
       return h.has(-1) === h.has(1) ? 0 : h.has(-1) ? -1 : 1;
     };
+    const human = (team: Side) => {
+      const m = matchRef.current;
+      return !!m && HUMANS[m.mode].includes(team);
+    };
     const onDown = (e: KeyboardEvent) => {
-      if (e.code === "Space") {
+      if (e.code === "Space" && matchRef.current?.phase === "playing") {
         e.preventDefault();
         serve();
         return;
       }
       const key = KEYS[e.code];
-      if (!key) return;
+      if (!key || !human(key.team)) return;
       e.preventDefault();
       const input = inputs.current[key.team];
       if (key.kick) input.kick = true;
@@ -113,7 +184,7 @@ export function Game() {
     };
     const onUp = (e: KeyboardEvent) => {
       const key = KEYS[e.code];
-      if (!key) return;
+      if (!key || !human(key.team)) return;
       const input = inputs.current[key.team];
       if (key.kick) input.kick = false;
       if (key.dir) {
@@ -122,7 +193,7 @@ export function Game() {
       }
     };
     const onPointerUp = (e: PointerEvent) => {
-      if (e.button === 0) inputs.current.red.kick = false;
+      if (e.button === 0 && human("red")) inputs.current.red.kick = false;
     };
     window.addEventListener("keydown", onDown);
     window.addEventListener("keyup", onUp);
@@ -134,6 +205,9 @@ export function Game() {
     };
   }, [serve]);
 
+  const redIsHuman = !!match && HUMANS[match.mode].includes("red");
+  const toggleLang = () => setLang((l) => (l === "es" ? "en" : "es"));
+
   return (
     <div className="relative h-dvh w-full select-none">
       <Canvas
@@ -141,65 +215,33 @@ export function Game() {
         camera={{ fov: 38, near: 0.05, far: 20 }}
         dpr={[1, 2]}
         // Left button kicks; the right one belongs to the camera.
-        onPointerMove={() => (aiming.current = true)}
+        onPointerMove={() => {
+          if (redIsHuman) aiming.current = true;
+        }}
         onPointerDown={(e) => {
-          if (e.button !== 0) return;
+          if (e.button !== 0 || !redIsHuman) return;
           aiming.current = true;
           inputs.current.red.kick = true;
         }}
         onContextMenu={(e) => e.preventDefault()}
       >
         <Fill />
-        <CameraRig resetKey={view} />
+        <CameraRig resetKey={view} spin={!match} />
         <Lamp />
         <Aim aimingRef={aiming} onAim={(z) => (inputs.current.red.pointerZ = z)} />
         <Suspense fallback={null}>
           <Physics gravity={[0, -9.81, 0]} timeStep={1 / PHYSICS_HZ}>
-            <Table onGoal={goal} />
+            <Table onGoal={onGoal} />
             <Ball ref={ball} onDead={serve} />
-            <Rods inputs={inputs} ball={ball} />
+            <BotDriver botsRef={bots} inputsRef={inputs} ballRef={ball} slidesRef={slides} />
+            <Rods inputs={inputs} ball={ball} slidesRef={slides} />
           </Physics>
         </Suspense>
       </Canvas>
 
-      <header className="pointer-events-none absolute inset-x-0 top-0 flex items-start justify-between p-4 sm:p-6">
-        <div className="pointer-events-auto">
-          <h1 className="font-sign text-2xl text-cream sm:text-3xl">{t.title}</h1>
-        </div>
-        <div className="pointer-events-auto flex gap-5">
-          <button onClick={() => setView((v) => v + 1)} className="text-sm tracking-widest text-cream/70 uppercase hover:text-cream">
-            {t.resetView}
-          </button>
-          <button onClick={() => setLang(lang === "es" ? "en" : "es")} className="text-sm tracking-widest text-cream/70 uppercase hover:text-cream">
-            {t.lang}
-          </button>
-        </div>
-      </header>
-
-      {/* Placeholder scoreboard; the bead counter on the table replaces it later. */}
-      <div className="pointer-events-none absolute inset-x-0 top-16 flex justify-center sm:top-6">
-        <div className="flex items-center gap-4 rounded bg-black/40 px-4 py-1.5 text-cream">
-          <span style={{ color: TEAMS.red.color }} className="font-semibold brightness-150">
-            {TEAMS.red.name}
-          </span>
-          <span className="font-sign text-2xl tabular-nums">
-            {score.red} : {score.blue}
-          </span>
-          <span style={{ color: TEAMS.blue.color }} className="font-semibold brightness-150">
-            {TEAMS.blue.name}
-          </span>
-        </div>
-      </div>
-
-      {flash && (
-        <p className="font-sign pointer-events-none absolute inset-x-0 top-1/3 text-center text-6xl" style={{ color: TEAMS[flash].color }}>
-          {t.goal}
-        </p>
-      )}
-
-      <p className="pointer-events-none absolute inset-x-0 bottom-4 px-4 text-center text-sm tracking-wide text-cream/60">
-        {t.controls} · {t.camera}
-      </p>
+      {!match && <Menu lang={lang} onLang={toggleLang} onPlay={play} />}
+      {match && <Hud lang={lang} match={match} onMenu={toMenu} onCamera={() => setView((v) => v + 1)} onLang={toggleLang} />}
+      {match?.phase === "over" && <Victory lang={lang} match={match} onRematch={() => play(match.mode, match.level)} onMenu={toMenu} />}
     </div>
   );
 }
