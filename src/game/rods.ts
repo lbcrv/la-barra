@@ -75,22 +75,70 @@ export function clampSlide(rod: RodSpec, slide: number): number {
   return Math.max(-rod.travel, Math.min(rod.travel, slide));
 }
 
+/** A player this close to the target counts as on it. */
+const ON_TARGET = 0.004;
+
 /**
  * The slide that puts one of the rod's players as close as it can get to `z`
- * across the table. With several players, whichever can reach it best is used.
+ * across the table. Of the players that can reach it, the one needing the
+ * shortest move from `from` (where the rod is now) is used. That keeps the rod
+ * with the same player while the target moves, instead of jumping a whole
+ * player-spacing whenever the target crosses the midpoint between two players,
+ * which rocked the rod from side to side around a ball caught between them.
  */
-export function slideToward(rod: RodSpec, z: number): number {
+export function slideToward(rod: RodSpec, z: number, from = 0): number {
   let best = 0;
   let bestMiss = Infinity;
+  let bestMove = Infinity;
   for (const offset of manOffsets(rod)) {
     const slide = clampSlide(rod, z - offset);
     const miss = Math.abs(slide + offset - z);
-    if (miss < bestMiss - 1e-9) {
+    const move = Math.abs(slide - from);
+    const reaches = miss < ON_TARGET;
+    const bestReaches = bestMiss < ON_TARGET;
+    const better = reaches && bestReaches ? move < bestMove - 1e-9 : miss < bestMiss - 1e-9;
+    if (better) {
       best = slide;
       bestMiss = miss;
+      bestMove = move;
     }
   }
   return best;
+}
+
+/** How a rod slides: top speed and how hard a wrist can start and stop it. */
+export const SLIDE = {
+  /** Time to close the gap to the target, like a hand easing onto it (s). */
+  settle: 0.035,
+  /** Acceleration and braking limit (m/s²). */
+  accel: 60,
+};
+
+export interface SlideState {
+  x: number;
+  v: number;
+}
+
+/**
+ * One step of a rod sliding toward `target` at up to `maxSpeed`, speeding up
+ * and slowing down no faster than a wrist can. Settles on the target without
+ * overshooting it. Pure; returns the new state.
+ */
+export function stepSlide(s: SlideState, target: number, dt: number, maxSpeed: number): SlideState {
+  const gap = target - s.x;
+  // The speed that closes the gap in `settle` seconds, but no faster than the
+  // rod can stop from within the remaining distance.
+  const stoppable = Math.sqrt(2 * SLIDE.accel * Math.abs(gap));
+  const want = Math.sign(gap) * Math.min(maxSpeed, Math.abs(gap) / SLIDE.settle, stoppable);
+  const dv = Math.max(-SLIDE.accel * dt, Math.min(SLIDE.accel * dt, want - s.v));
+  let v = s.v + dv;
+  let x = s.x + v * dt;
+  // Never overshoot, and don't creep forever: land on the target and stop.
+  if ((target - x) * gap <= 0 || (Math.abs(target - x) < 1e-5 && Math.abs(v) < 0.01)) {
+    x = target;
+    v = 0;
+  }
+  return { x, v };
 }
 
 /** The direction a team attacks along x: red toward blue's goal at +x. */

@@ -8,11 +8,11 @@ import { useEffect, useMemo, useRef, useState, type RefObject } from "react";
 import { Quaternion, Vector3, type Group } from "three";
 import { KEY_SPEED, ROD_SPEED, type Inputs } from "@/game/input";
 import { KICK, restingKick, stepKick } from "@/game/kick";
-import { activeRod, attackDir, clampSlide, MAN, manOffsets, ROD_Y, RODS, slideToward, type RodSpec } from "@/game/rods";
+import { activeRod, attackDir, clampSlide, MAN, manOffsets, ROD_Y, RODS, slideToward, stepSlide, type RodSpec, type SlideState } from "@/game/rods";
 import { CABINET, FIELD, WALL } from "@/game/table";
 import { TEAMS, type Side } from "@/game/teams";
 import type { BallHandle } from "./Ball";
-import { Figure, lookFor } from "./Figure";
+import { lookFor, rodFigures } from "./Figure";
 import { INK, OUTLINE_PX, toonGradient } from "./toon";
 
 /**
@@ -51,14 +51,18 @@ export function Rods({
   const bodies = useRef<(RapierRigidBody | null)[]>([]);
   const slides = slidesRef;
   const kicks = useRef(RODS.map(() => restingKick()));
+  // Each rod's slide speed, so it eases in and out instead of starting and stopping dead.
+  const motion = useRef<SlideState[]>(RODS.map(() => ({ x: 0, v: 0 })));
   const current = useRef<Record<Side, number | null>>({ red: null, blue: null });
   // Mirrors `current` for rendering the highlighted handle; updated only when it changes.
   const [active, setActive] = useState<Record<Side, number | null>>({ red: null, blue: null });
   const turn = useMemo(() => new Quaternion(), []);
-  // Each rod's player groups, for the cartoon squash and stretch.
-  const figures = useRef<(Group | null)[][]>(RODS.map(() => []));
+  // Each rod's upper bodies, for the cartoon squash and stretch.
+  const uppers = useRef<(Group | null)[]>([]);
 
-  // Visual only: players squash as the kick is drawn back and stretch as it lands.
+  // Visual only: upper bodies squash as the kick is drawn back and stretch as it
+  // lands. Legs never stretch, so boots can't dip into the field; nothing scales
+  // along the rod, so players stay where their colliders are.
   useFrame(() => {
     RODS.forEach((_, i) => {
       const k = kicks.current[i];
@@ -66,8 +70,7 @@ export function Rods({
       if (k.phase === "windup") sy = 1 - 0.14 * Math.min(1, k.held / 0.35);
       else if (k.phase === "strike") sy = 1.16;
       else if (k.phase === "recover") sy = 1 + 0.16 * Math.max(0, k.angle - 0.6);
-      const sx = 1 / Math.sqrt(sy);
-      for (const g of figures.current[i]) g?.scale.set(sx, sy, sx);
+      uppers.current[i]?.scale.set(1 / Math.sqrt(sy), sy, 1);
     });
   });
 
@@ -103,11 +106,12 @@ export function Rods({
     RODS.forEach((rod, i) => {
       const input = inputs.current[rod.team];
       const boost = speedRef.current[rod.team];
-      let target = slides.current[i];
-      if (input.pointerZ !== null) target = slideToward(rod, input.pointerZ);
-      else if (input.keyDir !== 0) target = clampSlide(rod, target + input.keyDir * KEY_SPEED * boost * dt);
-      const step = ROD_SPEED * boost * dt;
-      slides.current[i] += Math.max(-step, Math.min(step, target - slides.current[i]));
+      const now = motion.current[i];
+      let target = now.x;
+      if (input.pointerZ !== null) target = slideToward(rod, input.pointerZ, now.x);
+      else if (input.keyDir !== 0) target = clampSlide(rod, now.x + input.keyDir * KEY_SPEED * boost * 0.08);
+      motion.current[i] = stepSlide(now, target, dt, ROD_SPEED * boost);
+      slides.current[i] = motion.current[i].x;
 
       const kicking = input.kick && current.current[rod.team] === i;
       kicks.current[i] = stepKick(kicks.current[i], kicking, dt);
@@ -129,7 +133,7 @@ export function Rods({
           rod={rod}
           active={active[rod.team] === rod.id}
           bodyRef={(b) => (bodies.current[i] = b)}
-          figureRef={(k, g) => (figures.current[i][k] = g)}
+          upperRef={(g) => (uppers.current[i] = g)}
         />
       ))}
     </>
@@ -140,14 +144,20 @@ function Rod({
   rod,
   active,
   bodyRef,
-  figureRef,
+  upperRef,
 }: {
   rod: RodSpec;
   active: boolean;
   bodyRef: (b: RapierRigidBody | null) => void;
-  figureRef: (index: number, g: Group | null) => void;
+  upperRef: (g: Group | null) => void;
 }) {
   const grad = toonGradient();
+  const figures = useMemo(() => {
+    const offsets = manOffsets(rod);
+    const team = TEAMS[rod.team];
+    return rodFigures(offsets, attackDir(rod.team), team.color, team.shorts, offsets.map((_, k) => lookFor(rod.id * 10 + k)));
+  }, [rod]);
+  useEffect(() => () => Object.values(figures).forEach((g) => g.dispose()), [figures]);
   const team = TEAMS[rod.team];
   // Red stands on the near side (+z), blue on the far side.
   const handleDir = rod.team === "red" ? 1 : -1;
@@ -165,7 +175,7 @@ function Rod({
       position={[rod.x, ROD_Y, 0]}
       userData={{ name: `rod${rod.id}-${rod.team}-${rod.role}` }}
     >
-      {manOffsets(rod).map((z, k) => (
+      {manOffsets(rod).map((z) => (
         <group key={z}>
           <CuboidCollider args={[MAN.thick / 2, legLength / 2, MAN.width / 2]} position={[0, -legLength / 2, z]} {...MAN_PHYSICS} />
           <CuboidCollider
@@ -173,16 +183,23 @@ function Rod({
             position={[0, -MAN.reach + MAN.footHeight / 2, z]}
             {...MAN_PHYSICS}
           />
-          <Figure
-            ref={(g) => figureRef(k, g)}
-            z={z}
-            jersey={team.color}
-            shorts={team.shorts}
-            facing={attackDir(rod.team)}
-            look={lookFor(rod.id * 10 + k)}
-          />
         </group>
       ))}
+
+      {/* The players, three merged meshes for the whole rod. */}
+      <group ref={upperRef}>
+        <mesh geometry={figures.upper} castShadow>
+          <meshToonMaterial vertexColors gradientMap={grad} />
+          <Outlines thickness={OUTLINE_PX} color={INK} />
+        </mesh>
+        <mesh geometry={figures.face}>
+          <meshBasicMaterial vertexColors toneMapped={false} />
+        </mesh>
+      </group>
+      <mesh geometry={figures.lower} castShadow>
+        <meshToonMaterial vertexColors gradientMap={grad} />
+        <Outlines thickness={OUTLINE_PX} color={INK} />
+      </mesh>
 
       {/* Steel rod through the cabinet. */}
       <mesh rotation-x={Math.PI / 2} position={[0, 0, centre]} castShadow>

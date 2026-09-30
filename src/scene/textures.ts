@@ -1,4 +1,4 @@
-import { CanvasTexture, RepeatWrapping, SRGBColorSpace } from "three";
+import { BoxGeometry, CanvasTexture, RepeatWrapping, SRGBColorSpace } from "three";
 import { FIELD } from "@/game/table";
 
 /** Small seeded PRNG so the table looks the same on every visit. */
@@ -171,4 +171,38 @@ export function floorTexture() {
     g.stroke();
   }
   return finish(c, 6);
+}
+
+/** How much wood one copy of the wood texture covers, in metres (it is 2:1). */
+const WOOD_TILE = { u: 0.5, v: 0.25 };
+
+/**
+ * A box whose UVs are measured in metres, so the wood grain keeps its real
+ * size on every face instead of one texture stretching over a 1.3 m plank.
+ * Grain runs along each face's longer side.
+ */
+export function woodBox(w: number, h: number, d: number): BoxGeometry {
+  const g = new BoxGeometry(w, h, d);
+  const uv = g.getAttribute("uv");
+  // BoxGeometry faces in order: +x, -x, +y, -y, +z, -z; 4 vertices each.
+  const faces: [number, number][] = [
+    [d, h],
+    [d, h],
+    [w, d],
+    [w, d],
+    [w, h],
+    [w, h],
+  ];
+  faces.forEach(([fu, fv], f) => {
+    const along = fu >= fv;
+    for (let i = f * 4; i < f * 4 + 4; i++) {
+      const u = uv.getX(i);
+      const v = uv.getY(i);
+      // Put the grain (the texture's long axis) along the face's long side.
+      if (along) uv.setXY(i, (u * fu) / WOOD_TILE.u, (v * fv) / WOOD_TILE.v);
+      else uv.setXY(i, (v * fv) / WOOD_TILE.u, (u * fu) / WOOD_TILE.v);
+    }
+  });
+  uv.needsUpdate = true;
+  return g;
 }

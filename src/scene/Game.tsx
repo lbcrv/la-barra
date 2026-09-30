@@ -329,7 +329,8 @@ export function Game() {
       <Canvas
         shadows="percentage"
         camera={{ fov: 38, near: 0.05, far: 20 }}
-        dpr={[1, 2]}
+        // Sharp enough on high-density screens without rendering four times the pixels.
+        dpr={[1, 1.5]}
         // Left button kicks; the right one belongs to the camera.
         onPointerMove={() => {
           if (redIsHuman) aiming.current = true;

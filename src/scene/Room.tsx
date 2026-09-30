@@ -36,16 +36,8 @@ export function Lamp() {
         <sphereGeometry args={[0.035, 16, 12]} />
         <meshStandardMaterial color="#fff2cc" emissive="#ffd48a" emissiveIntensity={4} />
       </mesh>
-      <pointLight
-        color="#ffd9a3"
-        intensity={2.4}
-        distance={0}
-        decay={2}
-        castShadow
-        shadow-mapSize={[2048, 2048]}
-        shadow-bias={-0.0004}
-        shadow-radius={4}
-      />
+      {/* Warm glow only; the shadows come from the key light below, which renders them once instead of six times. */}
+      <pointLight color="#ffd9a3" intensity={2.4} distance={0} decay={2} />
     </group>
   );
 }
@@ -56,7 +48,25 @@ export function Fill() {
     <>
       {/* Cartoon light: a warm, even fill so colours stay bold, and a key from the bulb. */}
       <hemisphereLight args={["#fff1d6", "#3a2a1e", 1.1]} />
-      <directionalLight position={[-0.6, 2, 1.2]} intensity={0.9} color="#fff4e0" />
+      {/*
+        The key light casts every shadow in one pass, with its shadow camera
+        fitted to the table so the shadow map spends its pixels on the field.
+      */}
+      <directionalLight
+        position={[-0.35, 2, 0.6]}
+        intensity={0.9}
+        color="#fff4e0"
+        castShadow
+        shadow-mapSize={[2048, 2048]}
+        shadow-bias={-0.0004}
+        shadow-normalBias={0.01}
+        shadow-camera-left={-0.9}
+        shadow-camera-right={0.9}
+        shadow-camera-top={0.7}
+        shadow-camera-bottom={-0.7}
+        shadow-camera-near={0.5}
+        shadow-camera-far={3.5}
+      />
       <color attach="background" args={[ROOM]} />
     </>
   );

@@ -67,3 +67,17 @@ describe("Bot", () => {
     expect(run("hard")).toBeGreaterThan(run("easy"));
   });
 });
+
+describe("Bot with a still ball", () => {
+  it("holds its hand steady instead of trembling around the ball", () => {
+    // Alternating random values would re-roll the aim error every look.
+    let flip = 0;
+    const bot = new Bot("blue", "normal", () => (flip++ % 2 === 0 ? 0.05 : 0.95));
+    const mid = RODS.find((r) => r.team === "blue" && r.role === "midfield")!;
+    const ball = { x: mid.x - 0.025, z: 0.06, vx: 0, vz: 0 };
+    const seen: number[] = [];
+    for (let i = 0; i < 480 * 2; i++) seen.push(bot.think(ball, slidesAt(0.06), DT).pointerZ!);
+    const tail = seen.slice(-480);
+    expect(Math.max(...tail) - Math.min(...tail)).toBeLessThan(1e-6);
+  });
+});

@@ -39,6 +39,11 @@ export function predictZ(z: number, vz: number, t: number): number {
   return folded - Z_LIMIT;
 }
 
+/** The aim error is rolled again once the ball has moved this far (m). */
+const REROLL_AFTER = 0.05;
+/** Below this speed (m/s) a ball near the bot's rod counts as under control. */
+const SETTLED_SPEED = 0.15;
+
 /** How close in front of a boot the ball must be, along the attack, for a kick to land. */
 const REACH = { min: -0.004, max: 0.045 };
 /** How well a player must line up with the ball across the table. */
@@ -58,6 +63,10 @@ export class Bot {
   private holding = 0;
   private holdFor = 0;
   private active: number | null = null;
+  // The aim error sticks until the ball really moves, like a hand that is
+  // simply a bit off; re-rolling it at every look made the rod tremble.
+  private error = 0;
+  private errorAt: { x: number; z: number } | null = null;
   readonly input: TeamInput = { pointerZ: 0, keyDir: 0, kick: false };
 
   constructor(
@@ -75,7 +84,14 @@ export class Bot {
       this.target = 0;
     } else if (this.since >= cfg.reaction) {
       this.since = 0;
-      this.target = this.aim(ball) + (this.random() * 2 - 1) * cfg.error;
+      const moved = !this.errorAt || Math.hypot(ball.x - this.errorAt.x, ball.z - this.errorAt.z) > REROLL_AFTER;
+      if (moved) {
+        this.error = (this.random() * 2 - 1) * cfg.error;
+        this.errorAt = { x: ball.x, z: ball.z };
+      }
+      // A slow ball within reach gets a steadier hand: that's when a player traps and aims.
+      const settled = Math.hypot(ball.vx, ball.vz) < SETTLED_SPEED && this.nearOwnRod(ball.x);
+      this.target = this.aim(ball) + this.error * (settled ? 0.25 : 1);
     }
 
     // The hand moves toward the target at a human speed, not instantly.
@@ -102,6 +118,10 @@ export class Bot {
     if (!ahead || Math.abs(ball.vx) < 0.05) return ball.z;
     const t = (ahead.x - ball.x) / ball.vx;
     return predictZ(ball.z, ball.vz, Math.min(t, 1.5));
+  }
+
+  private nearOwnRod(x: number): boolean {
+    return RODS.some((r) => r.team === this.team && Math.abs(r.x - x) < 0.06);
   }
 
   /** Holds the button while charging, releases to strike, and decides when a chance is on. */

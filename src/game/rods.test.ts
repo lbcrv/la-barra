@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { activeRod, clampSlide, manOffsets, MAN, RODS, slideToward } from "./rods";
+import { activeRod, clampSlide, manOffsets, MAN, RODS, slideToward, stepSlide } from "./rods";
 import { FIELD } from "./table";
 
 describe("rod layout", () => {
@@ -62,5 +62,59 @@ describe("activeRod", () => {
     const mid = (RODS[3].x + RODS[5].x) / 2;
     expect(activeRod("red", mid + 0.005, 3)).toBe(3);
     expect(activeRod("red", RODS[5].x, 3)).toBe(5);
+  });
+});
+
+describe("slideToward keeps the same player", () => {
+  const five = RODS.find((r) => r.role === "midfield")!;
+
+  it("stays with the player it already has when the target is between two", () => {
+    // Midway between two players of the rod at rest: either could take it.
+    const mid = five.spacing / 2;
+    const fromLeft = slideToward(five, mid, -0.03);
+    const fromRight = slideToward(five, mid, 0.03);
+    // Each keeps the move short instead of jumping to the other player.
+    expect(Math.abs(fromLeft - -0.03)).toBeLessThan(five.spacing / 2 + 1e-9);
+    expect(Math.abs(fromRight - 0.03)).toBeLessThan(five.spacing / 2 + 1e-9);
+    expect(fromLeft).not.toBeCloseTo(fromRight);
+  });
+
+  it("does not rock a rod around a still target", () => {
+    const z = five.spacing / 2 + 0.001;
+    let s = { x: 0, v: 0 };
+    const seen: number[] = [];
+    for (let i = 0; i < 480; i++) {
+      s = stepSlide(s, slideToward(five, z, s.x), 1 / 480, 2.4);
+      seen.push(s.x);
+    }
+    // Settled: the last quarter second barely moves.
+    const tail = seen.slice(-120);
+    expect(Math.max(...tail) - Math.min(...tail)).toBeLessThan(1e-6);
+  });
+});
+
+describe("stepSlide", () => {
+  it("reaches the target and stops without overshooting", () => {
+    let s = { x: 0, v: 0 };
+    let max = 0;
+    for (let i = 0; i < 480; i++) {
+      s = stepSlide(s, 0.1, 1 / 480, 2.4);
+      max = Math.max(max, s.x);
+    }
+    expect(s).toEqual({ x: 0.1, v: 0 });
+    expect(max).toBeLessThanOrEqual(0.1);
+  });
+
+  it("speeds up gradually instead of jumping to full speed", () => {
+    const s = stepSlide({ x: 0, v: 0 }, 0.3, 1 / 480, 2.4);
+    expect(s.v).toBeLessThan(0.2);
+  });
+
+  it("never exceeds the top speed", () => {
+    let s = { x: 0, v: 0 };
+    for (let i = 0; i < 480; i++) {
+      s = stepSlide(s, 5, 1 / 480, 2.4);
+      expect(Math.abs(s.v)).toBeLessThanOrEqual(2.4 + 1e-9);
+    }
   });
 });
