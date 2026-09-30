@@ -37,10 +37,16 @@ export function PowerField({
   running,
   ballRef,
   onTake,
+  capOutRef,
+  mirror,
 }: {
   running: boolean;
   ballRef: RefObject<BallHandle | null>;
   onTake: (power: Power) => void;
+  /** The cap on the table, written every frame for the online host to send. */
+  capOutRef?: RefObject<{ power: Power; x: number; z: number } | null>;
+  /** Online guest: show this cap instead of running the drops. */
+  mirror?: { power: Power; x: number; z: number } | null;
 }) {
   const clock = useRef(0);
   const nextAt = useRef(SPAWN_EVERY * 0.6);
@@ -63,6 +69,16 @@ export function PowerField({
   }, []);
 
   useFrame((_, dt) => {
+    if (capOutRef) capOutRef.current = capRef.current;
+    if (mirror !== undefined) {
+      const g = group.current;
+      if (g) {
+        clock.current += dt;
+        g.position.y = 0.012 + Math.sin(clock.current * 5) * 0.003;
+        g.rotation.y = clock.current * 2.4;
+      }
+      return;
+    }
     if (!running) return;
     clock.current += Math.min(dt, 0.1);
     const now = clock.current;
@@ -98,10 +114,11 @@ export function PowerField({
     }
   });
 
-  if (!cap) return null;
+  const shown = mirror !== undefined ? mirror : cap;
+  if (!shown) return null;
   return (
-    <group ref={group} position={[cap.x, 0.25, cap.z]}>
-      <CapModel power={cap.power} />
+    <group ref={group} position={[shown.x, mirror !== undefined ? 0.012 : 0.25, shown.z]}>
+      <CapModel power={shown.power} />
     </group>
   );
 }

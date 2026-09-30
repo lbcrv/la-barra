@@ -23,6 +23,8 @@ export interface BallHandle {
   boost: (factor: number) => void;
   /** Scales how quickly the ball slows down: below 1 is ice. */
   setDamping: (factor: number) => void;
+  /** Online guest: put the ball where the host says it is, or off the table for null. */
+  mirror: (at: [number, number, number] | null) => void;
 }
 
 /** Where the ball waits between points: under the table, out of sight. */
@@ -94,6 +96,17 @@ export const Ball = forwardRef<
     },
     setDamping(factor) {
       body.current?.setLinearDamping(BALL.damping * factor);
+    },
+    mirror(at) {
+      const b = body.current;
+      if (!b) return;
+      live.current = false;
+      if (!at) {
+        if (b.isEnabled()) b.setEnabled(false);
+        return;
+      }
+      if (!b.isEnabled()) b.setEnabled(true);
+      b.setTranslation({ x: at[0], y: at[1], z: at[2] }, true);
     },
     park() {
       const b = body.current;

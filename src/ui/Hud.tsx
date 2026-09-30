@@ -72,7 +72,7 @@ export function Hud({
       )}
 
       <footer className="pointer-events-none absolute inset-x-0 bottom-3 space-y-0.5 px-4 text-center text-sm font-semibold text-cream/70">
-        {match.mode === "bot" ? <p>{t.controlsMouse}</p> : (
+        {match.mode !== "local" ? <p>{t.controlsMouse}</p> : (
           <>
             <p>{t.controlsRed}</p>
             <p>{t.controlsBlue}</p>
@@ -85,7 +85,18 @@ export function Hud({
 }
 
 /** The final whistle: who won, the score, and the way back in. */
-export function Victory({ lang, match, onRematch, onMenu }: { lang: Lang; match: Match; onRematch: () => void; onMenu: () => void }) {
+export function Victory({
+  lang,
+  match,
+  onRematch,
+  onMenu,
+}: {
+  lang: Lang;
+  match: Match;
+  /** Null for the online guest, who waits for the host to call the rematch. */
+  onRematch: (() => void) | null;
+  onMenu: () => void;
+}) {
   const t = strings[lang];
   const winner = match.last!;
   return (
@@ -99,10 +110,13 @@ export function Victory({ lang, match, onRematch, onMenu }: { lang: Lang; match:
           <span className="mx-3 text-ink/40">:</span>
           <span className="text-blue">{match.score.blue}</span>
         </p>
-        <div className="mt-7 grid grid-cols-2 gap-3">
-          <button onClick={onRematch} className="toon-button bg-gold text-ink">
-            {t.rematch}
-          </button>
+        {!onRematch && <p className="mt-5 font-semibold">{t.net.waitingRematch}</p>}
+        <div className={`mt-7 grid gap-3 ${onRematch ? "grid-cols-2" : "grid-cols-1"}`}>
+          {onRematch && (
+            <button onClick={onRematch} className="toon-button bg-gold text-ink">
+              {t.rematch}
+            </button>
+          )}
           <button onClick={onMenu} className="toon-button bg-cream text-ink">
             {t.menu}
           </button>

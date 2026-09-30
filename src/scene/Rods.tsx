@@ -30,6 +30,13 @@ const STUB_SIDE = 0.03;
 
 const Z_AXIS = new Vector3(0, 0, 1);
 
+/** The rods as the online host last described them. */
+export interface RemoteRods {
+  slides: number[];
+  angles: number[];
+  active: Record<Side, number | null>;
+}
+
 /**
  * All eight rods. Every physics step each rod slides toward what its side is
  * asking for (the pointer, the keys or the bot), and the side's active rod,
@@ -40,6 +47,9 @@ export function Rods({
   ball,
   slidesRef,
   speedRef,
+  anglesRef,
+  activeRef,
+  remoteRef,
 }: {
   inputs: RefObject<Inputs>;
   ball: RefObject<BallHandle | null>;
@@ -47,6 +57,11 @@ export function Rods({
   slidesRef: RefObject<number[]>;
   /** Power-up multiplier on each side's rod speed. */
   speedRef: RefObject<Record<Side, number>>;
+  /** Kick angles and active rods, written every step for the online host to send. */
+  anglesRef?: RefObject<number[]>;
+  activeRef?: RefObject<Record<Side, number | null>>;
+  /** Online guest: draw the rods where the host says they are, and simulate nothing. */
+  remoteRef?: RefObject<RemoteRods | null>;
 }) {
   const bodies = useRef<(RapierRigidBody | null)[]>([]);
   const slides = slidesRef;
@@ -59,6 +74,29 @@ export function Rods({
   const turn = useMemo(() => new Quaternion(), []);
   // Each rod's upper bodies, for the cartoon squash and stretch.
   const uppers = useRef<(Group | null)[]>([]);
+
+  // Online guest: copy the host's rods straight onto the bodies. Physics is paused
+  // there, and the renderer still draws each body wherever it is placed.
+  useFrame(() => {
+    const remote = remoteRef?.current;
+    if (!remote) return;
+    RODS.forEach((rod, i) => {
+      const angle = remote.angles[i];
+      // Rebuild just enough kick state for the squash and stretch below.
+      kicks.current[i] = { phase: angle < -0.05 ? "windup" : angle > 0.3 ? "strike" : "rest", angle, held: angle < -0.05 ? 0.35 : 0, speed: 0 };
+      slides.current[i] = remote.slides[i];
+      const body = bodies.current[i];
+      if (!body) return;
+      body.setTranslation({ x: rod.x, y: ROD_Y, z: remote.slides[i] }, true);
+      turn.setFromAxisAngle(Z_AXIS, attackDir(rod.team) * angle);
+      body.setRotation(turn, true);
+    });
+    const a = remote.active;
+    if (a.red !== current.current.red || a.blue !== current.current.blue) {
+      current.current = { ...a };
+      setActive({ ...a });
+    }
+  });
 
   // Visual only: upper bodies squash as the kick is drawn back and stretch as it
   // lands. Legs never stretch, so boots can't dip into the field; nothing scales
@@ -88,6 +126,7 @@ export function Rods({
   }, [slides]);
 
   useBeforePhysicsStep((world) => {
+    if (remoteRef?.current) return;
     const dt = world.timestep;
     const at = ball.current?.position() ?? null;
 
@@ -122,7 +161,9 @@ export function Rods({
       // Turning about +z swings the foot toward +x, which is red's attack.
       turn.setFromAxisAngle(Z_AXIS, attackDir(rod.team) * kicks.current[i].angle);
       body.setNextKinematicRotation(turn);
+      if (anglesRef) anglesRef.current[i] = kicks.current[i].angle;
     });
+    if (activeRef) activeRef.current = current.current;
   });
 
   return (

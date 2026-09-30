@@ -86,7 +86,7 @@ const PORTRAIT_ELEVATION = (64 * Math.PI) / 180;
  * screens look from behind red's goal, red at the bottom and blue at the top,
  * which is how a phone is held.
  */
-function framing(fovDeg: number, aspect: number) {
+function framing(fovDeg: number, aspect: number, flip: boolean) {
   const vfov = (fovDeg * Math.PI) / 180;
   const hfov = 2 * Math.atan(Math.tan(vfov / 2) * aspect);
   const portrait = aspect < 1;
@@ -97,11 +97,14 @@ function framing(fovDeg: number, aspect: number) {
   const dist = Math.max(across / 2 / Math.tan(hfov / 2), along / 2 / Math.tan(vfov / 2)) + 0.2;
   const up = TARGET.y + dist * Math.sin(elevation);
   const back = dist * Math.cos(elevation);
-  return {
-    position: portrait ? new Vector3(TARGET.x - back, up, 0) : new Vector3(0, up, TARGET.z + back),
-    target: portrait ? new Vector3(TARGET.x, TARGET.y, 0) : TARGET,
-    dist,
-  };
+  const position = portrait ? new Vector3(TARGET.x - back, up, 0) : new Vector3(0, up, TARGET.z + back);
+  const target = portrait ? new Vector3(TARGET.x, TARGET.y, 0) : TARGET.clone();
+  // The online guest plays blue from the other side of the table.
+  if (flip) {
+    position.set(-position.x, position.y, -position.z);
+    target.set(-target.x, target.y, -target.z);
+  }
+  return { position, target, dist };
 }
 
 /** How far the player may pull the camera back, relative to the framed distance. */
@@ -119,9 +122,12 @@ export function CameraRig({
   resetKey,
   spin = false,
   shakeRef,
+  flip = false,
 }: {
   resetKey: number;
   spin?: boolean;
+  /** Stand on the other side of the table, as the blue player does online. */
+  flip?: boolean;
   /** Shake strength, 0 to 1; anyone can bump it and it fades on its own. */
   shakeRef?: RefObject<number>;
 }) {
@@ -143,7 +149,7 @@ export function CameraRig({
   });
   const controls = useRef<OrbitControlsImpl>(null);
   const fov = "fov" in camera ? camera.fov : 38;
-  const frame = useMemo(() => framing(fov, size.width / size.height), [fov, size.width, size.height]);
+  const frame = useMemo(() => framing(fov, size.width / size.height, flip), [fov, size.width, size.height, flip]);
   const far = frame.dist * MAX_ZOOM_OUT;
 
   useLayoutEffect(() => {

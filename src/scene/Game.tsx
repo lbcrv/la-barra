@@ -13,8 +13,11 @@ import { PHYSICS_HZ } from "@/game/table";
 import { TEAMS, type Side } from "@/game/teams";
 import { Hud, Victory } from "@/ui/Hud";
 import { Menu } from "@/ui/Menu";
+import { Online } from "@/ui/Online";
 import { Radio } from "@/ui/Radio";
-import { type Lang } from "@/ui/strings";
+import { strings, type Lang } from "@/ui/strings";
+import { q, readCode, SnapshotBuffer, SNAPSHOT_HZ, type HandInput, type Snapshot, type ToGuest, type ToHost } from "@/net/protocol";
+import type { GuestSession, HostSession } from "@/net/session";
 import { Aim } from "./Aim";
 import { Backdrop } from "./Backdrop";
 import { Ball, type BallHandle } from "./Ball";
@@ -22,9 +25,10 @@ import { BotDriver } from "./BotDriver";
 import { Confetti } from "./Confetti";
 import { PowerField } from "./PowerField";
 import { CameraRig, Fill, Lamp } from "./Room";
-import { Rods } from "./Rods";
+import { Mirror } from "./Mirror";
+import { Rods, type RemoteRods } from "./Rods";
 import { Scoreboard } from "./Scoreboard";
-import { play as sfx } from "./sound";
+import { play as sfx, type Cue } from "./sound";
 import { Table } from "./Table";
 
 /** Pause after a goal before the next ball rolls in, so the goal can land. */
@@ -87,6 +91,27 @@ export function Game() {
   // One goal per ball: a ball can rattle around the pocket.
   const scored = useRef(false);
 
+  // Online play. The host simulates and plays red; the guest mirrors and plays blue.
+  const [role, setRole] = useState<"local" | "host" | "guest">("local");
+  const roleRef = useRef<"local" | "host" | "guest">("local");
+  const session = useRef<HostSession | GuestSession | null>(null);
+  // An invite link (?sala=ABCD) opens the lobby straight into that room.
+  const [lobby, setLobby] = useState<{ code: string | null; notice: string | null } | null>(() => {
+    const code = readCode(new URLSearchParams(window.location.search).get("sala") ?? "");
+    return code ? { code, notice: null } : null;
+  });
+  const angles = useRef<number[]>(RODS.map(() => 0));
+  const activeRods = useRef<Record<Side, number | null>>({ red: null, blue: null });
+  const capOut = useRef<{ power: Power; x: number; z: number } | null>(null);
+  const [remoteCap, setRemoteCap] = useState<{ power: Power; x: number; z: number } | null>(null);
+  const remoteRods = useRef<RemoteRods | null>(null);
+  const buffer = useRef(new SnapshotBuffer());
+  const lastMatchJson = useRef("");
+  const lastCapJson = useRef("");
+  const lastPowersKey = useRef("");
+  /** The side the local mouse and keys play. */
+  const mine: Side = role === "guest" ? "blue" : "red";
+
   const later = useCallback((ms: number, fn: () => void) => {
     timers.current.push(window.setTimeout(fn, ms));
   }, []);
@@ -106,14 +131,29 @@ export function Game() {
     ball.current?.serve();
   }, []);
 
-  /** Don Chepe says something, during matches only. */
+  /** Sends to the guest when hosting; does nothing otherwise. */
+  const toGuest = useCallback((msg: ToGuest) => {
+    if (roleRef.current === "host") (session.current as HostSession | null)?.send(msg);
+  }, []);
+
+  /** Plays a sound here and, when hosting, on the guest's side too. */
+  const fx = useCallback(
+    (cue: Cue, strength = 1) => {
+      sfx(cue, strength);
+      if (cue !== "goal") toGuest({ t: "fx", cue, strength: q(strength) });
+    },
+    [toGuest],
+  );
+
+  /** Don Chepe says something, during matches only; the guest hears it in its own language. */
   const say = useCallback((call: Call) => {
     if (!matchRef.current) return;
+    toGuest({ t: "call", call });
     const text = narrator.current.line(call, langRef.current, (side) => TEAMS[side].name);
     setLine((l) => ({ text, id: (l?.id ?? 0) + 1 }));
     window.clearTimeout(lineTimer.current);
     lineTimer.current = window.setTimeout(() => setLine(null), LINE_MS);
-  }, []);
+  }, [toGuest]);
 
   const setActivePowers = useCallback((next: ActivePower[]) => {
     powersRef.current = next;
@@ -147,10 +187,11 @@ export function Game() {
     (mode: Mode, level: Level) => {
       setUp(mode, level);
       update(newMatch(mode, level));
-      sfx("whistle");
+      fx("whistle");
       say({ kind: "kickoff" });
+      toGuest({ t: "start", level });
     },
-    [setUp, update, say],
+    [setUp, update, say, fx, toGuest],
   );
 
   const toMenu = useCallback(() => {
@@ -160,8 +201,9 @@ export function Game() {
 
   const onGoal = useCallback(
     (conceded: Side) => {
-      if (scored.current) return;
+      if (scored.current || roleRef.current === "guest") return;
       scored.current = true;
+      toGuest({ t: "goal", conceded });
       shake.current = 1;
       setBurst((b) => ({ n: b.n + 1, scorer: conceded === "red" ? "blue" : "red", conceded }));
       const m = matchRef.current;
@@ -169,10 +211,10 @@ export function Game() {
       if (next) {
         update(next);
         sfx("goal");
-        later(350, () => sfx("bead"));
+        later(350, () => fx("bead"));
         if (next.phase === "over") {
           say({ kind: "win", winner: next.last! });
-          later(900, () => sfx("whistle"));
+          later(900, () => fx("whistle"));
         } else {
           say({ kind: "goal", scorer: next.last! });
         }
@@ -189,18 +231,18 @@ export function Game() {
         serve();
       });
     },
-    [later, update, say, serve],
+    [later, update, say, serve, fx, toGuest],
   );
 
   const onHit = useCallback(
     (strength: number, kind: "kick" | "wall", vx: number) => {
       if (kind === "wall") {
-        sfx("wall", strength / 3);
+        fx("wall", strength / 3);
         return;
       }
       const kicker = kickerOf(vx);
       lastKicker.current = kicker;
-      sfx("kick", strength / 4);
+      fx("kick", strength / 4);
       const boost = effects(powersRef.current, now()).kickBoost[kicker];
       if (boost > 1) ball.current?.boost(boost);
       if (strength > 2) shake.current = Math.max(shake.current, Math.min(0.45, strength / 10));
@@ -209,7 +251,7 @@ export function Game() {
         say({ kind: "bigShot" });
       }
     },
-    [say],
+    [say, fx],
   );
 
   const onTake = useCallback(
@@ -217,10 +259,10 @@ export function Game() {
       const side = lastKicker.current;
       if (!side) return;
       setActivePowers(take(powersRef.current, power, side, now()));
-      sfx("power");
+      fx("power");
       say({ kind: "power", power, side });
     },
-    [say, setActivePowers],
+    [say, setActivePowers, fx],
   );
 
   // Powers run on the clock: apply their effects and drop them as they wear off.
@@ -240,6 +282,167 @@ export function Game() {
   useEffect(() => {
     langRef.current = lang;
   }, [lang]);
+
+  const setOnlineRole = useCallback((r: "local" | "host" | "guest") => {
+    roleRef.current = r;
+    setRole(r);
+  }, []);
+
+  /** Ends online play and goes back to the menu, or to the lobby with a notice. */
+  const leaveOnline = useCallback(
+    (notice: string | null) => {
+      const s = session.current;
+      session.current = null;
+      if (s) {
+        s.onClose = () => {};
+        s.send({ t: "bye" } as never);
+        s.close();
+      }
+      remoteRods.current = null;
+      setRemoteCap(null);
+      setOnlineRole("local");
+      toMenu();
+      setLobby(notice ? { code: null, notice } : null);
+    },
+    [setOnlineRole, toMenu],
+  );
+
+  const startHosting = useCallback(
+    (s: HostSession) => {
+      session.current = s;
+      setLobby(null);
+      setOnlineRole("host");
+      s.onClose = () => leaveOnline(strings[langRef.current].net.left);
+      s.onMessage = (msg: ToHost) => {
+        if (msg.t === "input") {
+          const i: HandInput = msg.input;
+          inputs.current.blue = { pointerZ: i.z, keyDir: i.dir, kick: i.kick };
+        } else if (msg.t === "bye") leaveOnline(strings[langRef.current].net.left);
+      };
+      play("online", "normal");
+    },
+    [leaveOnline, play, setOnlineRole],
+  );
+
+  /** Guest: take in the host's table. Positions are blended per frame by <Mirror>; the rest is state. */
+  const receiveSnapshot = useCallback(
+    (snap: Snapshot) => {
+      buffer.current.push(snap, performance.now());
+      const matchJson = JSON.stringify(snap.match);
+      if (matchJson !== lastMatchJson.current) {
+        lastMatchJson.current = matchJson;
+        update(snap.match);
+      }
+      const capJson = JSON.stringify(snap.cap);
+      if (capJson !== lastCapJson.current) {
+        lastCapJson.current = capJson;
+        setRemoteCap(snap.cap);
+      }
+      const powersKey = snap.powers.map((p) => `${p.power}${p.side}${Math.round(p.left)}`).join();
+      if (powersKey !== lastPowersKey.current) {
+        lastPowersKey.current = powersKey;
+        const t = now();
+        setActivePowers(snap.powers.map((p) => ({ power: p.power, side: p.side, until: t + p.left })));
+      }
+    },
+    [update, setActivePowers],
+  );
+
+  const startGuest = useCallback(
+    (s: GuestSession) => {
+      session.current = s;
+      setLobby(null);
+      setOnlineRole("guest");
+      clearTimers();
+      ball.current?.park();
+      bots.current = [];
+      inputs.current = idleInputs();
+      aiming.current = false;
+      buffer.current = new SnapshotBuffer();
+      lastMatchJson.current = "";
+      remoteRods.current = { slides: RODS.map(() => 0), angles: RODS.map(() => 0), active: { red: null, blue: null } };
+      setView((v) => v + 1);
+      s.onClose = () => leaveOnline(strings[langRef.current].net.left);
+      s.onMessage = (msg: ToGuest) => {
+        switch (msg.t) {
+          case "snap":
+            receiveSnapshot(msg.s);
+            break;
+          case "fx":
+            sfx(msg.cue, msg.strength);
+            break;
+          case "call": {
+            const text = narrator.current.line(msg.call, langRef.current, (side) => TEAMS[side].name);
+            setLine((l) => ({ text, id: (l?.id ?? 0) + 1 }));
+            window.clearTimeout(lineTimer.current);
+            lineTimer.current = window.setTimeout(() => setLine(null), LINE_MS);
+            break;
+          }
+          case "goal":
+            shake.current = 1;
+            sfx("goal");
+            setBurst((b) => ({ n: b.n + 1, scorer: msg.conceded === "red" ? "blue" : "red", conceded: msg.conceded }));
+            break;
+          case "start":
+            setLine(null);
+            break;
+          case "bye":
+            leaveOnline(strings[langRef.current].net.left);
+            break;
+        }
+      };
+    },
+    [clearTimers, leaveOnline, setOnlineRole, receiveSnapshot],
+  );
+
+  // Host: send the table to the guest SNAPSHOT_HZ times a second.
+  useEffect(() => {
+    if (role !== "host") return;
+    const id = window.setInterval(() => {
+      const s = session.current as HostSession | null;
+      if (!s) return;
+      const b = ball.current?.position() ?? null;
+      const t = now();
+      s.send({
+        t: "snap",
+        s: {
+          t: performance.now(),
+          ball: b ? [q(b.x), q(b.y), q(b.z)] : null,
+          slides: slides.current.map(q),
+          angles: angles.current.map(q),
+          active: [activeRods.current.red, activeRods.current.blue],
+          match: matchRef.current,
+          powers: powersRef.current.filter((p) => p.until > t).map((p) => ({ power: p.power, side: p.side, left: q(p.until - t) })),
+          cap: capOut.current ? { power: capOut.current.power, x: q(capOut.current.x), z: q(capOut.current.z) } : null,
+        },
+      });
+    }, 1000 / SNAPSHOT_HZ);
+    return () => window.clearInterval(id);
+  }, [role]);
+
+  // Guest: send what the hand is doing, whenever it changes and at least every quarter second.
+  useEffect(() => {
+    if (role !== "guest") return;
+    let last = "";
+    let lastAt = 0;
+    const id = window.setInterval(() => {
+      const s = session.current as GuestSession | null;
+      if (!s) return;
+      const b = inputs.current.blue;
+      const input: HandInput = { z: b.pointerZ === null ? null : q(b.pointerZ), dir: b.keyDir, kick: b.kick };
+      const json = JSON.stringify(input);
+      if (json === last && performance.now() - lastAt < 250) return;
+      last = json;
+      lastAt = performance.now();
+      s.send({ t: "input", input });
+    }, 1000 / SNAPSHOT_HZ);
+    return () => window.clearInterval(id);
+  }, [role]);
+
+  // Once read, the invite code leaves the address bar so a reload doesn't rejoin.
+  useEffect(() => {
+    if (new URLSearchParams(window.location.search).has("sala")) window.history.replaceState(null, "", window.location.pathname);
+  }, []);
 
   // The demo starts once the physics world is ready.
   useEffect(() => {
@@ -278,16 +481,25 @@ export function Game() {
     };
     const human = (team: Side) => {
       const m = matchRef.current;
+      if (roleRef.current === "guest") return !!m;
       return !!m && HUMANS[m.mode].includes(team);
     };
+    // Online, each player's keys drive their own side; the guest sees the table
+    // from the other side, so "up" slides the other way.
+    const route = (key: (typeof KEYS)[string]) => {
+      if (roleRef.current === "guest") return { ...key, team: "blue" as Side, dir: key.dir ? ((-key.dir) as -1 | 1) : undefined };
+      if (roleRef.current === "host") return { ...key, team: "red" as Side };
+      return key;
+    };
     const onDown = (e: KeyboardEvent) => {
-      if (e.code === "Space" && matchRef.current?.phase === "playing") {
+      if (e.code === "Space" && matchRef.current?.phase === "playing" && roleRef.current !== "guest") {
         e.preventDefault();
         serve();
         return;
       }
-      const key = KEYS[e.code];
-      if (!key || !human(key.team)) return;
+      const raw = KEYS[e.code];
+      if (!raw || !human(raw.team)) return;
+      const key = route(raw);
       e.preventDefault();
       const input = inputs.current[key.team];
       if (key.kick) input.kick = true;
@@ -295,12 +507,13 @@ export function Game() {
         held[key.team].add(key.dir);
         input.keyDir = slideDir(key.team);
         input.pointerZ = null;
-        if (key.team === "red") aiming.current = false;
+        if (key.team === (roleRef.current === "guest" ? "blue" : "red")) aiming.current = false;
       }
     };
     const onUp = (e: KeyboardEvent) => {
-      const key = KEYS[e.code];
-      if (!key || !human(key.team)) return;
+      const raw = KEYS[e.code];
+      if (!raw || !human(raw.team)) return;
+      const key = route(raw);
       const input = inputs.current[key.team];
       if (key.kick) input.kick = false;
       if (key.dir) {
@@ -309,7 +522,9 @@ export function Game() {
       }
     };
     const onPointerUp = (e: PointerEvent) => {
-      if (e.button === 0 && human("red")) inputs.current.red.kick = false;
+      if (e.button !== 0) return;
+      const side: Side = roleRef.current === "guest" ? "blue" : "red";
+      if (roleRef.current !== "local" || human("red")) inputs.current[side].kick = false;
     };
     window.addEventListener("keydown", onDown);
     window.addEventListener("keyup", onUp);
@@ -321,7 +536,9 @@ export function Game() {
     };
   }, [serve]);
 
-  const redIsHuman = !!match && HUMANS[match.mode].includes("red");
+  // The local mouse plays red, or blue for the online guest.
+  const mouseSide: Side = mine;
+  const mousePlays = !!match && (role !== "local" || HUMANS[match.mode].includes("red"));
   const toggleLang = () => setLang((l) => (l === "es" ? "en" : "es"));
 
   return (
@@ -333,39 +550,81 @@ export function Game() {
         dpr={[1, 1.5]}
         // Left button kicks; the right one belongs to the camera.
         onPointerMove={() => {
-          if (redIsHuman) aiming.current = true;
+          if (mousePlays) aiming.current = true;
         }}
         onPointerDown={(e) => {
-          if (e.button !== 0 || !redIsHuman) return;
+          if (e.button !== 0 || !mousePlays) return;
           aiming.current = true;
-          inputs.current.red.kick = true;
+          inputs.current[mouseSide].kick = true;
         }}
         onContextMenu={(e) => e.preventDefault()}
       >
         <Fill />
-        <CameraRig resetKey={view} spin={!match} shakeRef={shake} />
+        <CameraRig resetKey={view} spin={!match && !lobby} shakeRef={shake} flip={role === "guest"} />
         <Backdrop />
         <Scoreboard score={match?.score ?? { red: 0, blue: 0 }} />
         <Confetti burst={burst.n} side={burst.scorer} goalOf={burst.conceded} />
-        <PowerField running={match?.phase === "playing"} ballRef={ball} onTake={onTake} />
+        <PowerField
+          running={match?.phase === "playing" && role !== "guest"}
+          ballRef={ball}
+          onTake={onTake}
+          capOutRef={capOut}
+          mirror={role === "guest" ? remoteCap : undefined}
+        />
         <Lamp />
-        <Aim aimingRef={aiming} onAim={(z) => (inputs.current.red.pointerZ = z)} />
+        <Aim aimingRef={aiming} onAim={(z) => (inputs.current[mouseSide].pointerZ = z)} />
+        {role === "guest" && <Mirror bufferRef={buffer} ballRef={ball} rodsRef={remoteRods} />}
         <Suspense fallback={null}>
-          <Physics gravity={[0, -9.81, 0]} timeStep={1 / PHYSICS_HZ}>
+          {/* The online guest simulates nothing: it draws what the host sends. */}
+          <Physics gravity={[0, -9.81, 0]} timeStep={1 / PHYSICS_HZ} paused={role === "guest"}>
             <Table onGoal={onGoal} />
             <Ball ref={ball} onDead={serve} onHit={onHit} hot={hot} />
             <BotDriver botsRef={bots} inputsRef={inputs} ballRef={ball} slidesRef={slides} />
-            <Rods inputs={inputs} ball={ball} slidesRef={slides} speedRef={rodSpeed} />
+            <Rods
+              inputs={inputs}
+              ball={ball}
+              slidesRef={slides}
+              speedRef={rodSpeed}
+              anglesRef={angles}
+              activeRef={activeRods}
+              remoteRef={remoteRods}
+            />
           </Physics>
         </Suspense>
       </Canvas>
 
-      {!match && <Menu lang={lang} onLang={toggleLang} onPlay={play} />}
+      {!match && !lobby && role === "local" && (
+        <Menu lang={lang} onLang={toggleLang} onPlay={play} online={() => setLobby({ code: null, notice: null })} />
+      )}
+      {lobby && role === "local" && (
+        <Online
+          lang={lang}
+          initialCode={lobby.code}
+          notice={lobby.notice}
+          onHost={startHosting}
+          onJoin={startGuest}
+          onBack={() => setLobby(null)}
+        />
+      )}
       {match && (
-        <Hud lang={lang} match={match} onMenu={toMenu} onCamera={() => setView((v) => v + 1)} onLang={toggleLang} powers={powers} />
+        <Hud
+          lang={lang}
+          match={match}
+          onMenu={() => (role === "local" ? toMenu() : leaveOnline(null))}
+          onCamera={() => setView((v) => v + 1)}
+          onLang={toggleLang}
+          powers={powers}
+        />
       )}
       {match && <Radio lang={lang} line={line} />}
-      {match?.phase === "over" && <Victory lang={lang} match={match} onRematch={() => play(match.mode, match.level)} onMenu={toMenu} />}
+      {match?.phase === "over" && (
+        <Victory
+          lang={lang}
+          match={match}
+          onRematch={role === "guest" ? null : () => play(match.mode, match.level)}
+          onMenu={() => (role === "local" ? toMenu() : leaveOnline(null))}
+        />
+      )}
     </div>
   );
 }
