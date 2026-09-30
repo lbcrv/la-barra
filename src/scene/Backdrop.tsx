@@ -16,7 +16,7 @@ const WALL_W = 5;
  * The shop wall, hand-painted: two-tone paint, the shop's name, and the signs
  * every pulpería has. In-world signage stays in Spanish in both languages.
  */
-function wallTexture() {
+function wallTexture(variant: "shop" | "poster" | "plain" = "shop") {
   const W = 2000;
   const H = 1040;
   const c = document.createElement("canvas");
@@ -53,6 +53,32 @@ function wallTexture() {
     g.restore();
   };
 
+  const tex = new CanvasTexture(c);
+  tex.colorSpace = SRGBColorSpace;
+  tex.anisotropy = 8;
+
+  if (variant === "plain") return tex;
+
+  if (variant === "poster") {
+    // A hand-lettered tournament poster taped to the wall.
+    g.save();
+    g.translate(W / 2, 330);
+    g.rotate(-0.03);
+    g.fillStyle = "#f6ead0";
+    g.strokeStyle = "#1b1410";
+    g.lineWidth = 10;
+    g.beginPath();
+    g.roundRect(-330, -220, 660, 470, 14);
+    g.fill();
+    g.stroke();
+    g.restore();
+    sign("GRAN TORNEO", W / 2, 230, 86, "#d7322a", "#1b1410", -0.03);
+    sign("DE FUTBOLITO", W / 2, 330, 70, "#2563c9", "#1b1410", -0.03);
+    sign("SÁBADO 3 PM", W / 2, 440, 64, "#1b1410", "#f2b632", -0.03);
+    sign("INSCRIPCIÓN: L. 20", W / 2, 520, 44, "#1b1410", "#f6ead0", -0.03);
+    return tex;
+  }
+
   // The shop's name on a painted board.
   g.fillStyle = "#f6ead0";
   g.strokeStyle = "#1b1410";
@@ -67,10 +93,6 @@ function wallTexture() {
   sign("MAÑANA SÍ", 330, 500, 60, "#f2b632", "#1b1410", -0.04);
   sign("HAY HIELO", W - 320, 420, 72, "#2563c9", "#f6ead0", 0.05);
   sign("SE VENDEN RECARGAS", W - 360, 520, 50, "#f6ead0", "#1b1410", 0.03);
-
-  const tex = new CanvasTexture(c);
-  tex.colorSpace = SRGBColorSpace;
-  tex.anisotropy = 8;
   return tex;
 }
 
@@ -123,25 +145,38 @@ function Shelves() {
   );
 }
 
+/** Half the room's size along the table (x) and across it toward the camera (z). */
+const ROOM_X = FIELD.length / 2 + 1.6;
+const ROOM_Z_NEAR = 2.3;
+
 /**
- * The corner shop around the table: the painted back wall with its signs and
- * shelves, and a matching wall at blue's end for the view a phone gets from
- * behind red's goal.
+ * The corner shop all around the table, so the camera never looks into a void:
+ * the back wall with the shop's name, signs and shelves, a tournament poster at
+ * red's end, the signs again at blue's end, and a plain wall behind the player.
+ * Each wall faces inward and is one-sided, so when the camera swings behind one
+ * it simply disappears instead of blocking the view.
  */
 export function Backdrop() {
-  const tex = useMemo(() => wallTexture(), []);
+  const shop = useMemo(() => wallTexture("shop"), []);
+  const poster = useMemo(() => wallTexture("poster"), []);
+  const plain = useMemo(() => wallTexture("plain"), []);
   const grad = toonGradient();
+  const y = FLOOR_Y + WALL_H / 2;
+  const walls: { tex: typeof shop; pos: [number, number, number]; rot: number; w: number }[] = [
+    { tex: shop, pos: [0, y, WALL_Z], rot: 0, w: WALL_W },
+    { tex: shop, pos: [ROOM_X, y, (WALL_Z + ROOM_Z_NEAR) / 2], rot: -Math.PI / 2, w: ROOM_Z_NEAR - WALL_Z },
+    { tex: poster, pos: [-ROOM_X, y, (WALL_Z + ROOM_Z_NEAR) / 2], rot: Math.PI / 2, w: ROOM_Z_NEAR - WALL_Z },
+    { tex: plain, pos: [0, y, ROOM_Z_NEAR], rot: Math.PI, w: WALL_W },
+  ];
   return (
     <group>
-      <mesh position={[0, FLOOR_Y + WALL_H / 2, WALL_Z]}>
-        <planeGeometry args={[WALL_W, WALL_H]} />
-        <meshToonMaterial map={tex} gradientMap={grad} fog={false} />
-      </mesh>
+      {walls.map((wall, i) => (
+        <mesh key={i} position={wall.pos} rotation-y={wall.rot}>
+          <planeGeometry args={[wall.w, WALL_H]} />
+          <meshToonMaterial map={wall.tex} gradientMap={grad} fog={false} />
+        </mesh>
+      ))}
       <Shelves />
-      <mesh position={[FIELD.length / 2 + 1.6, FLOOR_Y + WALL_H / 2, 0]} rotation-y={-Math.PI / 2}>
-        <planeGeometry args={[WALL_W, WALL_H]} />
-        <meshToonMaterial map={tex} gradientMap={grad} fog={false} />
-      </mesh>
     </group>
   );
 }

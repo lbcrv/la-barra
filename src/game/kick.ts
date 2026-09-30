@@ -7,8 +7,11 @@
 export const KICK = {
   /** How far back the foot is drawn while the button is held. */
   windup: -0.7,
-  /** Where the swing stops, well past vertical, before coming back. */
-  follow: 1.35,
+  /**
+   * Where the swing stops, past vertical, before coming back. Much further and
+   * the players lie flat for a moment after every shot, which looks broken.
+   */
+  follow: 1.2,
   windupSpeed: 12,
   /**
    * Coming back to hang is slow, like a released handle settling. A fast return

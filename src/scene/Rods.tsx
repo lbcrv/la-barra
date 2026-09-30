@@ -168,6 +168,7 @@ export function Rods({
 
   return (
     <>
+      <Bushings />
       {RODS.map((rod, i) => (
         <Rod
           key={rod.id}
@@ -255,5 +256,35 @@ function Rod({
         <Outlines thickness={OUTLINE_PX} color={INK} />
       </mesh>
     </RigidBody>
+  );
+}
+
+/**
+ * The bearings where each rod passes through the cabinet: a flanged ring on
+ * both outer faces. Without them the rods looked driven straight through the
+ * wood. They stay put while the rods slide and turn inside them.
+ */
+function Bushings() {
+  const grad = toonGradient();
+  return (
+    <group>
+      {RODS.flatMap((rod) =>
+        [-1, 1].map((side) => (
+          <group key={`${rod.id}${side}`} position={[rod.x, ROD_Y, side * (CABINET_HALF + 0.004)]} rotation-x={Math.PI / 2}>
+            {/* Flange against the wood, then the collar the rod runs in. */}
+            <mesh>
+              <cylinderGeometry args={[0.017, 0.017, 0.004, 20]} />
+              <meshToonMaterial color="#c9a24a" gradientMap={grad} />
+              <Outlines thickness={OUTLINE_PX * 0.8} color={INK} />
+            </mesh>
+            <mesh position={[0, side * 0.006, 0]}>
+              <cylinderGeometry args={[0.0115, 0.0115, 0.01, 16]} />
+              <meshToonMaterial color="#8a6d2c" gradientMap={grad} />
+              <Outlines thickness={OUTLINE_PX * 0.8} color={INK} />
+            </mesh>
+          </group>
+        )),
+      )}
+    </group>
   );
 }

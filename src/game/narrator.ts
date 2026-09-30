@@ -21,7 +21,7 @@ const LINES: Record<Exclude<Call["kind"], "power">, Record<Lang, string[]>> = {
     en: ["The ball is rolling at the corner shop!", "The neighbourhood derby is on!", "Keep your eyes peeled, this gets good.", "Play ball, the owner wants to close early!"],
   },
   goal: {
-    es: ["¡GOOOL de {team}!", "¡Púchica, qué golazo de {team}!", "¡Se la metió hasta la cocina!", "¡Adentro! {team} no perdona.", "¡A la gran! Ni la vio venir el portero.", "¡Qué cachimbazo, mae!"],
+    es: ["¡GOOOL de {team}!", "¡Púchica, qué golazo de {team}!", "¡Se la metió hasta la cocina!", "¡Adentro! {team} no perdona.", "¡A la gran! Ni la vio venir el portero.", "¡Qué cachimbazo, maje!"],
     en: ["GOAL for {team}!", "What a strike from {team}!", "Buried it right into the kitchen!", "In! {team} don't forgive.", "Good grief, the keeper never saw it.", "What a rocket!"],
   },
   bigShot: {
