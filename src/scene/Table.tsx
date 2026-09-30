@@ -2,7 +2,7 @@
 
 import { CuboidCollider, RigidBody } from "@react-three/rapier";
 import { useMemo } from "react";
-import { BALL, CABINET, FIELD, GOAL, WALL } from "@/game/table";
+import { BALL, CABINET, FIELD, GOAL, LID_Y, WALL } from "@/game/table";
 import type { Side } from "@/game/teams";
 import { fieldTexture, floorTexture, woodTexture } from "./textures";
 
@@ -10,6 +10,12 @@ const HL = FIELD.length / 2;
 const HW = FIELD.width / 2;
 const T = WALL.thickness;
 const H = WALL.height;
+
+/**
+ * Wall colliders run up to the invisible lid, higher than the painted walls,
+ * so a ball popped into the air can't slip out between wall and lid.
+ */
+const WALL_TOP = LID_Y;
 
 /** Bounce off the walls: hard wood, a little lively. */
 const WALL_PHYSICS = { restitution: 0.7, friction: 0.2 };
@@ -34,7 +40,7 @@ export function Table({ onGoal }: { onGoal: (conceded: Side) => void }) {
   return (
     <group>
       {/* Playing surface. */}
-      <RigidBody type="fixed" colliders={false}>
+      <RigidBody type="fixed" colliders={false} userData={{ name: "field" }}>
         <CuboidCollider args={[HL, 0.02, HW]} position={[0, -0.02, 0]} friction={0.4} restitution={0.25} />
         <mesh rotation-x={-Math.PI / 2} receiveShadow>
           <planeGeometry args={[FIELD.length, FIELD.width]} />
@@ -42,11 +48,16 @@ export function Table({ onGoal }: { onGoal: (conceded: Side) => void }) {
         </mesh>
       </RigidBody>
 
+      {/* Invisible lid over the whole table, above the players' heads. */}
+      <RigidBody type="fixed" colliders={false} userData={{ name: "lid" }}>
+        <CuboidCollider args={[HL + T + GOAL.depth, 0.01, HW + T]} position={[0, LID_Y + 0.01, 0]} restitution={0.3} />
+      </RigidBody>
+
       {/* Long side walls. */}
-      <RigidBody type="fixed" colliders={false}>
+      <RigidBody type="fixed" colliders={false} userData={{ name: "side-walls" }}>
         {[-1, 1].map((s) => (
           <group key={s}>
-            <CuboidCollider args={[HL + T, H / 2, T / 2]} position={[0, H / 2, s * (HW + T / 2)]} {...WALL_PHYSICS} />
+            <CuboidCollider args={[HL + T, WALL_TOP / 2, T / 2]} position={[0, WALL_TOP / 2, s * (HW + T / 2)]} {...WALL_PHYSICS} />
             <mesh position={[0, H / 2, s * (HW + T / 2)]} castShadow receiveShadow>
               <boxGeometry args={[FIELD.length + 2 * T, H, T]} />
               <meshStandardMaterial map={wood} roughness={0.55} />
@@ -61,17 +72,21 @@ export function Table({ onGoal }: { onGoal: (conceded: Side) => void }) {
         const x = dir * (HL + T / 2);
         return (
           <group key={team}>
-            <RigidBody type="fixed" colliders={false}>
+            <RigidBody type="fixed" colliders={false} userData={{ name: `end-wall-${team}` }}>
               {[-1, 1].map((s) => (
                 <group key={s}>
-                  <CuboidCollider args={[T / 2, H / 2, side / 2]} position={[x, H / 2, s * (GOAL.width / 2 + side / 2)]} {...WALL_PHYSICS} />
+                  <CuboidCollider args={[T / 2, WALL_TOP / 2, side / 2]} position={[x, WALL_TOP / 2, s * (GOAL.width / 2 + side / 2)]} {...WALL_PHYSICS} />
                   <mesh position={[x, H / 2, s * (GOAL.width / 2 + side / 2)]} castShadow receiveShadow>
                     <boxGeometry args={[T, H, side]} />
                     <meshStandardMaterial map={wood} roughness={0.55} />
                   </mesh>
                 </group>
               ))}
-              <CuboidCollider args={[T / 2, (H - GOAL.height) / 2, GOAL.width / 2]} position={[x, GOAL.height + (H - GOAL.height) / 2, 0]} {...WALL_PHYSICS} />
+              <CuboidCollider
+                args={[T / 2, (WALL_TOP - GOAL.height) / 2, GOAL.width / 2]}
+                position={[x, GOAL.height + (WALL_TOP - GOAL.height) / 2, 0]}
+                {...WALL_PHYSICS}
+              />
               <mesh position={[x, GOAL.height + (H - GOAL.height) / 2, 0]} castShadow>
                 <boxGeometry args={[T, H - GOAL.height, GOAL.width]} />
                 <meshStandardMaterial map={wood} roughness={0.55} />
@@ -136,7 +151,7 @@ function GoalPocket({ dir, onScore }: { dir: -1 | 1; onScore: () => void }) {
   const back = dir * (HL + depth);
   const floorY = -0.03;
   return (
-    <RigidBody type="fixed" colliders={false}>
+    <RigidBody type="fixed" colliders={false} userData={{ name: `pocket${dir}` }}>
       {/* Floor, back and sides of the pocket. */}
       <CuboidCollider args={[depth / 2, 0.01, GOAL.width / 2 + T]} position={[cx, floorY - 0.01, 0]} restitution={0.1} friction={0.8} />
       <CuboidCollider args={[0.01, H / 2 + 0.03, GOAL.width / 2 + T]} position={[back + dir * 0.01, H / 2 - 0.03, 0]} restitution={0.1} />
@@ -144,10 +159,15 @@ function GoalPocket({ dir, onScore }: { dir: -1 | 1; onScore: () => void }) {
         <CuboidCollider key={s} args={[depth / 2, H / 2 + 0.03, 0.01]} position={[cx, H / 2 - 0.03, s * (GOAL.width / 2 + 0.01)]} />
       ))}
       <CuboidCollider args={[GOAL.depth / 2, 0.01, GOAL.width / 2]} position={[dir * (HL + T + GOAL.depth / 2), GOAL.height + 0.01, 0]} />
+      {/*
+        The goal sensor fills the pocket from its floor to the crossbar, starting
+        one ball radius past the line: it trips as soon as the ball's centre
+        crosses the goal line, rolling or in the air, before it can bounce back out.
+      */}
       <CuboidCollider
         sensor
-        args={[depth / 2 - BALL.radius, 0.03, GOAL.width / 2]}
-        position={[cx + dir * BALL.radius, floorY + 0.02, 0]}
+        args={[depth / 2 - BALL.radius / 2, (GOAL.height - floorY) / 2, GOAL.width / 2]}
+        position={[cx + (dir * BALL.radius) / 2, (GOAL.height + floorY) / 2, 0]}
         onIntersectionEnter={onScore}
       />
       {/* The dark inside of the pocket, seen through the goal mouth. */}

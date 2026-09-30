@@ -93,8 +93,8 @@ export const Ball = forwardRef<BallHandle, { onDead: () => void }>(function Ball
       position={[PARKED.x, PARKED.y, PARKED.z]}
       ccd
       linearDamping={BALL.damping}
-      angularDamping={BALL.damping}
-      userData={{ ball: true }}
+      angularDamping={BALL.spinDamping}
+      userData={{ name: "ball" }}
     >
       <BallCollider args={[BALL.radius]} mass={BALL.mass} restitution={BALL.restitution} friction={BALL.friction} />
       <mesh castShadow>
