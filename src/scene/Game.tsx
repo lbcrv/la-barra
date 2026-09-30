@@ -16,6 +16,7 @@ export function Game() {
   const [lang, setLang] = useState<Lang>("es");
   const [score, setScore] = useState<Record<Side, number>>({ red: 0, blue: 0 });
   const [flash, setFlash] = useState<Side | null>(null);
+  const [view, setView] = useState(0);
   const ball = useRef<BallHandle>(null);
   // A ball can rattle around the pocket; one goal per ball.
   const scored = useRef(false);
@@ -62,9 +63,16 @@ export function Game() {
 
   return (
     <div className="relative h-dvh w-full select-none">
-      <Canvas shadows="percentage" camera={{ fov: 38, near: 0.05, far: 20 }} dpr={[1, 2]} onPointerDown={serve}>
+      <Canvas
+        shadows="percentage"
+        camera={{ fov: 38, near: 0.05, far: 20 }}
+        dpr={[1, 2]}
+        // Left button plays; the right one belongs to the camera.
+        onPointerDown={(e) => e.button === 0 && serve()}
+        onContextMenu={(e) => e.preventDefault()}
+      >
         <Fill />
-        <CameraRig />
+        <CameraRig resetKey={view} />
         <Lamp />
         <Suspense fallback={null}>
           <Physics gravity={[0, -9.81, 0]} timeStep={1 / 120}>
@@ -78,9 +86,14 @@ export function Game() {
         <div className="pointer-events-auto">
           <h1 className="font-sign text-2xl text-cream sm:text-3xl">{t.title}</h1>
         </div>
-        <button onClick={() => setLang(lang === "es" ? "en" : "es")} className="pointer-events-auto text-sm tracking-widest text-cream/70 uppercase hover:text-cream">
-          {t.lang}
-        </button>
+        <div className="pointer-events-auto flex gap-5">
+          <button onClick={() => setView((v) => v + 1)} className="text-sm tracking-widest text-cream/70 uppercase hover:text-cream">
+            {t.resetView}
+          </button>
+          <button onClick={() => setLang(lang === "es" ? "en" : "es")} className="text-sm tracking-widest text-cream/70 uppercase hover:text-cream">
+            {t.lang}
+          </button>
+        </div>
       </header>
 
       {/* Placeholder scoreboard; the bead counter on the table replaces it later. */}
@@ -104,7 +117,9 @@ export function Game() {
         </p>
       )}
 
-      <p className="pointer-events-none absolute inset-x-0 bottom-4 text-center text-sm tracking-wide text-cream/60">{t.serve}</p>
+      <p className="pointer-events-none absolute inset-x-0 bottom-4 px-4 text-center text-sm tracking-wide text-cream/60">
+        {t.serve} · {t.camera}
+      </p>
     </div>
   );
 }

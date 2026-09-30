@@ -1,8 +1,10 @@
 "use client";
 
 import { useThree } from "@react-three/fiber";
-import { useLayoutEffect, useMemo } from "react";
-import { Vector3 } from "three";
+import { OrbitControls } from "@react-three/drei";
+import { useLayoutEffect, useMemo, useRef } from "react";
+import { MOUSE, TOUCH, Vector3 } from "three";
+import type { OrbitControls as OrbitControlsImpl } from "three-stdlib";
 import { CABINET, FIELD, WALL } from "@/game/table";
 
 /** Height of the bulb above the field, and the room colour it fades into. */
@@ -90,17 +92,52 @@ function framing(fovDeg: number, aspect: number) {
   };
 }
 
-/** Frames the table for the screen, and keeps the room's fog behind it so the table never fades out. */
-export function CameraRig() {
+/** How far the player may pull the camera back, relative to the framed distance. */
+const MAX_ZOOM_OUT = 1.35;
+/** Never lower than this angle above the table, so the view can't go under the rim. */
+const LOWEST_VIEW = (22 * Math.PI) / 180;
+
+/**
+ * Frames the table for the screen and lets the player move the camera: right
+ * button (or two fingers) orbits, the wheel (or a pinch) zooms. The left button
+ * and a single finger stay free for play. `resetKey` changing puts the camera
+ * back where it started. The room's fog always sits behind the furthest view.
+ */
+export function CameraRig({ resetKey }: { resetKey: number }) {
   const { camera, size } = useThree();
+  const controls = useRef<OrbitControlsImpl>(null);
   const fov = "fov" in camera ? camera.fov : 38;
   const frame = useMemo(() => framing(fov, size.width / size.height), [fov, size.width, size.height]);
+  const far = frame.dist * MAX_ZOOM_OUT;
 
   useLayoutEffect(() => {
     camera.position.copy(frame.position);
     camera.lookAt(frame.target);
     camera.updateProjectionMatrix();
-  }, [camera, frame]);
+    controls.current?.target.copy(frame.target);
+    controls.current?.update();
+  }, [camera, frame, resetKey]);
 
-  return <fog attach="fog" args={[ROOM, frame.dist + 0.5, frame.dist + 3.5]} />;
+  return (
+    <>
+      <OrbitControls
+        ref={controls}
+        makeDefault
+        target={frame.target}
+        enablePan={false}
+        enableDamping
+        dampingFactor={0.12}
+        rotateSpeed={0.6}
+        zoomSpeed={0.7}
+        minDistance={0.6}
+        maxDistance={far}
+        minPolarAngle={0.05}
+        maxPolarAngle={Math.PI / 2 - LOWEST_VIEW}
+        // Left button and single finger are left unmapped, which the controls ignore.
+        mouseButtons={{ MIDDLE: MOUSE.DOLLY, RIGHT: MOUSE.ROTATE }}
+        touches={{ TWO: TOUCH.DOLLY_ROTATE }}
+      />
+      <fog attach="fog" args={[ROOM, far + 0.4, far + 3.5]} />
+    </>
+  );
 }
