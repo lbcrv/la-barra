@@ -1,36 +1,51 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# La Barra
 
-## Getting Started
+A cartoon table football game for the browser, set in a Honduran corner shop. Atlético La Esquina (red) against Real Pulpería (blue).
 
-First, run the development server:
+**Play:** _link coming once it's deployed_
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+![The menu over the table](src/app/opengraph-image.png)
+
+## What's in it
+
+- **Three ways to play.** Against the computer (easy, normal, hard), two players on one keyboard, or online with a four-letter room code.
+- **Real physics under the cartoon.** The table, ball and rods are real size (1.20 × 0.68 m field, 35 mm ball) and simulated with Rapier at 480 Hz, so a full-power kick meets the ball instead of passing through it.
+- **Arcade on top.** First to five. Bottle caps drop onto the field with powers (fire, turbo, rust, ice). Don Chepe calls the match from the shop's radio.
+- **Everything drawn in code.** Toon shading and ink outlines, seeded players who each look different, the shop wall and its signs, confetti, and every sound synthesized with Web Audio. No models, images or audio files.
+
+## Controls
+
+| | Move | Kick |
+| --- | --- | --- |
+| Mouse | Point across the table | Click (hold for power) |
+| Red on the keyboard | W / S | D |
+| Blue on the keyboard | Arrow up / down | Arrow left |
+
+The rod nearest the ball kicks. Right-drag moves the camera, the wheel zooms.
+
+## How online play works
+
+Peer to peer over WebRTC with PeerJS; its free public broker only introduces the two browsers. The host's browser runs the physics and plays red. The guest plays blue, sends its hand (pointer, keys, kick) and draws what the host sends back 30 times a second, blended 90 ms behind so late packets don't make the ball stutter. No server of our own, nothing to pay for.
+
+## Running it
+
+```sh
+npm install
+npm run dev     # http://localhost:3000
+npm test        # rods, kicks, bot, match rules, power-ups, narrator, netcode
+npm run build
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+## Layout
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+```
+src/
+  game/    pure rules with tests: table sizes, rods, kick, bot, match, power-ups, narrator
+  net/     room codes, snapshot blending, PeerJS session
+  scene/   the 3D table, players, ball, lights and effects (React Three Fiber, Rapier)
+  ui/      menu, HUD, online lobby, strings in Spanish and English
+```
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+## Stack
 
-## Learn More
-
-To learn more about Next.js, take a look at the following resources:
-
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
-
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+Next.js, React Three Fiber, Drei, Rapier, PeerJS, Tailwind CSS. Hosted as a static site.
