@@ -14,9 +14,10 @@ import { TEAMS, type Side } from "@/game/teams";
 import { Hud, Victory } from "@/ui/Hud";
 import { Menu } from "@/ui/Menu";
 import { Online } from "@/ui/Online";
+import { Ping } from "@/ui/Ping";
 import { Radio } from "@/ui/Radio";
 import { strings, type Lang } from "@/ui/strings";
-import { q, readCode, SnapshotBuffer, SNAPSHOT_HZ, type HandInput, type Snapshot, type ToGuest, type ToHost } from "@/net/protocol";
+import { PING_EVERY_MS, PING_LOST_MS, q, readCode, SnapshotBuffer, SNAPSHOT_HZ, type HandInput, type Snapshot, type ToGuest, type ToHost } from "@/net/protocol";
 import type { GuestSession, HostSession } from "@/net/session";
 import { Aim } from "./Aim";
 import { Backdrop } from "./Backdrop";
@@ -25,7 +26,7 @@ import { BotDriver } from "./BotDriver";
 import { Confetti } from "./Confetti";
 import { PowerField } from "./PowerField";
 import { CameraRig, Fill, Lamp } from "./Room";
-import { Mirror } from "./Mirror";
+import { Mirror, SyncMeshes } from "./Mirror";
 import { Rods, type RemoteRods } from "./Rods";
 import { Scoreboard } from "./Scoreboard";
 import { play as sfx, type Cue } from "./sound";
@@ -109,6 +110,22 @@ export function Game() {
   const lastMatchJson = useRef("");
   const lastCapJson = useRef("");
   const lastPowersKey = useRef("");
+  const [ping, setPing] = useState<number | null>(null);
+  const lastPong = useRef(0);
+
+  /** Answers a ping, or takes in a pong; shared by host and guest. */
+  const onPing = useCallback((msg: { t: "ping" | "pong"; at: number }) => {
+    const s = session.current;
+    if (!s) return;
+    if (msg.t === "ping") {
+      s.send({ t: "pong", at: msg.at });
+      return;
+    }
+    const rtt = performance.now() - msg.at;
+    lastPong.current = performance.now();
+    // Smooth a little so the number doesn't flicker on every packet.
+    setPing((p) => (p === null ? rtt : p + (rtt - p) * 0.3));
+  }, []);
   /** The side the local mouse and keys play. */
   const mine: Side = role === "guest" ? "blue" : "red";
 
@@ -129,6 +146,13 @@ export function Game() {
     if (scored.current) return;
     lastKicker.current = null;
     ball.current?.serve();
+  }, []);
+
+  /** A dead or stranded ball: drop a new one in the middle, no key needed. */
+  const restartBall = useCallback(() => {
+    if (scored.current || roleRef.current === "guest") return;
+    lastKicker.current = null;
+    ball.current?.drop();
   }, []);
 
   /** Sends to the guest when hosting; does nothing otherwise. */
@@ -317,11 +341,12 @@ export function Game() {
         if (msg.t === "input") {
           const i: HandInput = msg.input;
           inputs.current.blue = { pointerZ: i.z, keyDir: i.dir, kick: i.kick };
-        } else if (msg.t === "bye") leaveOnline(strings[langRef.current].net.left);
+        } else if (msg.t === "ping" || msg.t === "pong") onPing(msg);
+        else if (msg.t === "bye") leaveOnline(strings[langRef.current].net.left);
       };
       play("online", "normal");
     },
-    [leaveOnline, play, setOnlineRole],
+    [leaveOnline, play, setOnlineRole, onPing],
   );
 
   /** Guest: take in the host's table. Positions are blended per frame by <Mirror>; the rest is state. */
@@ -389,10 +414,14 @@ export function Game() {
           case "bye":
             leaveOnline(strings[langRef.current].net.left);
             break;
+          case "ping":
+          case "pong":
+            onPing(msg);
+            break;
         }
       };
     },
-    [clearTimers, leaveOnline, setOnlineRole, receiveSnapshot],
+    [clearTimers, leaveOnline, setOnlineRole, receiveSnapshot, onPing],
   );
 
   // Host: send the table to the guest SNAPSHOT_HZ times a second.
@@ -418,6 +447,20 @@ export function Game() {
       });
     }, 1000 / SNAPSHOT_HZ);
     return () => window.clearInterval(id);
+  }, [role]);
+
+  // Both sides: measure the round trip every second, and notice when answers stop.
+  useEffect(() => {
+    if (role === "local") return;
+    lastPong.current = performance.now();
+    const id = window.setInterval(() => {
+      session.current?.send({ t: "ping", at: performance.now() } as never);
+      if (performance.now() - lastPong.current > PING_LOST_MS) setPing(null);
+    }, PING_EVERY_MS);
+    return () => {
+      window.clearInterval(id);
+      setPing(null);
+    };
   }, [role]);
 
   // Guest: send what the hand is doing, whenever it changes and at least every quarter second.
@@ -573,12 +616,11 @@ export function Game() {
         />
         <Lamp />
         <Aim aimingRef={aiming} onAim={(z) => (inputs.current[mouseSide].pointerZ = z)} />
-        {role === "guest" && <Mirror bufferRef={buffer} ballRef={ball} rodsRef={remoteRods} />}
         <Suspense fallback={null}>
           {/* The online guest simulates nothing: it draws what the host sends. */}
           <Physics gravity={[0, -9.81, 0]} timeStep={1 / PHYSICS_HZ} paused={role === "guest"}>
             <Table onGoal={onGoal} />
-            <Ball ref={ball} onDead={serve} onHit={onHit} hot={hot} />
+            <Ball ref={ball} onDead={restartBall} onHit={onHit} hot={hot} />
             <BotDriver botsRef={bots} inputsRef={inputs} ballRef={ball} slidesRef={slides} />
             <Rods
               inputs={inputs}
@@ -589,6 +631,12 @@ export function Game() {
               activeRef={activeRods}
               remoteRef={remoteRods}
             />
+            {role === "guest" && (
+              <>
+                <Mirror bufferRef={buffer} ballRef={ball} rodsRef={remoteRods} />
+                <SyncMeshes />
+              </>
+            )}
           </Physics>
         </Suspense>
       </Canvas>
@@ -617,6 +665,7 @@ export function Game() {
         />
       )}
       {match && <Radio lang={lang} line={line} />}
+      {role !== "local" && <Ping ms={ping} lang={lang} />}
       {match?.phase === "over" && (
         <Victory
           lang={lang}

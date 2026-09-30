@@ -5,7 +5,8 @@ import { useFrame } from "@react-three/fiber";
 import { BallCollider, RigidBody, type RapierRigidBody } from "@react-three/rapier";
 import { forwardRef, useEffect, useImperativeHandle, useRef } from "react";
 import type { BallState } from "@/game/bot";
-import { BALL, SERVE } from "@/game/table";
+import { towardPlay } from "@/game/rods";
+import { BALL, FIELD, SERVE } from "@/game/table";
 import { INK, OUTLINE_PX, toonGradient } from "./toon";
 
 export interface BallHandle {
@@ -15,6 +16,8 @@ export interface BallHandle {
   place: (at: { x: number; z: number }, velocity: { x: number; z: number }) => void;
   /** Takes the ball off the table until the next serve. */
   park: () => void;
+  /** Drops a new ball on the centre spot, rolling toward one side. */
+  drop: () => void;
   /** Where the ball is now, or null when parked. */
   position: () => { x: number; y: number; z: number } | null;
   /** Position and velocity on the table plane, or null when parked. */
@@ -39,6 +42,16 @@ const PARKED = { x: 0, y: -0.5, z: 0 };
 const DEAD_AFTER = 3.5;
 const DEAD_DISTANCE = 0.03;
 
+/**
+ * Where no player can touch the ball, the table leans it back into play, like
+ * the slight slope real tables have in their dead spots. Below this speed the
+ * lean kicks in (m/s), with this much push (m/s²).
+ */
+const LEAN_BELOW = 0.25;
+const LEAN = 0.9;
+/** A ball stranded out of everyone's reach this long is dropped again in the middle (s). */
+const STRANDED_AFTER = 2;
+
 /** A jump in speed this big in one frame is a hit worth reacting to, in m/s. */
 const HIT_JUMP = 0.6;
 
@@ -56,6 +69,7 @@ export const Ball = forwardRef<
   const lastSpeed = useRef(0);
   const still = useRef(0);
   const anchor = useRef<{ x: number; z: number } | null>(null);
+  const stranded = useRef(0);
   const live = useRef(false);
 
   useImperativeHandle(ref, () => ({
@@ -117,6 +131,20 @@ export const Ball = forwardRef<
       if (!b.isEnabled()) b.setEnabled(true);
       b.setTranslation({ x: at[0], y: at[1], z: at[2] }, true);
     },
+    drop() {
+      const b = body.current;
+      if (!b) return;
+      b.setEnabled(true);
+      b.setTranslation({ x: 0, y: 0.06, z: (Math.random() - 0.5) * 0.1 }, true);
+      b.setAngvel({ x: 0, y: 0, z: 0 }, true);
+      // Rolling toward one side's midfield, so it never sits on the dead centre spot.
+      const side = Math.random() < 0.5 ? -1 : 1;
+      b.setLinvel({ x: side * (0.3 + Math.random() * 0.15), y: 0, z: (Math.random() - 0.5) * 0.5 }, true);
+      still.current = 0;
+      stranded.current = 0;
+      anchor.current = null;
+      live.current = true;
+    },
     park() {
       const b = body.current;
       if (!b) return;
@@ -152,8 +180,18 @@ export const Ball = forwardRef<
     } else {
       still.current += dt;
     }
-    // Stuck, or somehow off the table: either way the point is over.
-    if (still.current > DEAD_AFTER || b.translation().y < -0.3) {
+    // Out of everyone's reach and slowing down: lean it back into play.
+    const onField = Math.abs(p.x) < FIELD.length / 2 - BALL.radius && p.y > 0;
+    const lean = onField ? towardPlay(p.x, p.z) : null;
+    if (lean && speed < LEAN_BELOW) {
+      const push = BALL.mass * LEAN * dt;
+      b.applyImpulse({ x: lean.x * push, y: 0, z: lean.z * push }, true);
+      stranded.current += dt;
+    } else {
+      stranded.current = 0;
+    }
+    // Stuck, stranded, or somehow off the table: either way the point is over.
+    if (still.current > DEAD_AFTER || stranded.current > STRANDED_AFTER || p.y < -0.3) {
       live.current = false;
       onDead();
     }

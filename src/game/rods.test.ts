@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { activeRod, clampSlide, manOffsets, MAN, RODS, slideToward, stepSlide } from "./rods";
+import { activeRod, BOOT_REACH, clampSlide, manOffsets, MAN, reachable, RODS, slideToward, stepSlide, towardPlay } from "./rods";
 import { FIELD } from "./table";
 
 describe("rod layout", () => {
@@ -116,5 +116,45 @@ describe("stepSlide", () => {
       s = stepSlide(s, 5, 1 / 480, 2.4);
       expect(Math.abs(s.v)).toBeLessThanOrEqual(2.4 + 1e-9);
     }
+  });
+});
+
+describe("reachable", () => {
+  it("is true right in front of a boot", () => {
+    const mid = RODS.find((r) => r.team === "red" && r.role === "midfield")!;
+    expect(reachable(mid.x + 0.03, 0.05)).toBe(true);
+  });
+
+  it("is false in the gap between two rods' reach", () => {
+    // Just past the red midfield boots' forward reach, before blue's midfield back reach.
+    const red = RODS.find((r) => r.team === "red" && r.role === "midfield")!;
+    const blue = RODS.find((r) => r.team === "blue" && r.role === "midfield")!;
+    // Both midfields face the middle: red reaches forward to +x, blue forward to -x.
+    const gapStart = red.x + BOOT_REACH.forward;
+    const gapEnd = blue.x - BOOT_REACH.forward;
+    expect(gapEnd).toBeGreaterThan(gapStart);
+    expect(reachable((gapStart + gapEnd) / 2, 0)).toBe(false);
+  });
+
+  it("is false in a corner beyond the keeper's travel", () => {
+    expect(reachable(-FIELD.length / 2 + 0.02, FIELD.width / 2 - 0.03)).toBe(false);
+  });
+});
+
+describe("towardPlay", () => {
+  it("says nothing for a reachable ball", () => {
+    const mid = RODS.find((r) => r.team === "red" && r.role === "midfield")!;
+    expect(towardPlay(mid.x + 0.03, 0)).toBeNull();
+  });
+
+  it("points a stranded ball at the nearest reachable spot, and following it gets there", () => {
+    let x = -FIELD.length / 2 + 0.02;
+    let z = FIELD.width / 2 - 0.03;
+    for (let i = 0; i < 400 && !reachable(x, z); i++) {
+      const d = towardPlay(x, z)!;
+      x += d.x * 0.005;
+      z += d.z * 0.005;
+    }
+    expect(reachable(x, z)).toBe(true);
   });
 });

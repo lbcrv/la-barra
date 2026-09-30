@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { CODE_LENGTH, makeCode, peerId, readCode, RENDER_DELAY_MS, SnapshotBuffer, type Snapshot } from "./protocol";
+import { CODE_LENGTH, makeCode, peerId, pingBars, readCode, RENDER_DELAY_MS, SnapshotBuffer, type Snapshot } from "./protocol";
 
 const snap = (t: number, x: number, slide = 0): Snapshot => ({
   t,
@@ -64,5 +64,14 @@ describe("SnapshotBuffer", () => {
     buf.push(snap(1033, 0.1), 1033);
     buf.push(snap(1000, 0.0), 1040);
     expect(buf.latest()!.ball![0]).toBe(0.1);
+  });
+});
+
+describe("pingBars", () => {
+  it("lights three bars for a quick link and fewer as it slows", () => {
+    expect(pingBars(35)).toBe(3);
+    expect(pingBars(120)).toBe(2);
+    expect(pingBars(400)).toBe(1);
+    expect(pingBars(null)).toBe(0);
   });
 });

@@ -64,7 +64,10 @@ export interface HandInput {
   kick: boolean;
 }
 
-export type ToHost = { t: "hello" } | { t: "input"; input: HandInput } | { t: "bye" };
+/** Either side asks "are you there?" every second; the answer's delay is the ping. */
+export type Ping = { t: "ping"; at: number } | { t: "pong"; at: number };
+
+export type ToHost = { t: "hello" } | { t: "input"; input: HandInput } | { t: "bye" } | Ping;
 
 export type ToGuest =
   | { t: "start"; level: Level }
@@ -72,7 +75,20 @@ export type ToGuest =
   | { t: "goal"; conceded: Side }
   | { t: "fx"; cue: "kick" | "wall" | "power" | "whistle" | "bead" | "goal"; strength: number }
   | { t: "call"; call: Call }
-  | { t: "bye" };
+  | { t: "bye" }
+  | Ping;
+
+/** How often each side measures the ping, and when a silent link counts as lost (ms). */
+export const PING_EVERY_MS = 1000;
+export const PING_LOST_MS = 3000;
+
+/** Ping quality for the signal icon: bars lit, out of three. */
+export function pingBars(ms: number | null): 0 | 1 | 2 | 3 {
+  if (ms === null) return 0;
+  if (ms < 80) return 3;
+  if (ms < 160) return 2;
+  return 1;
+}
 
 /** Rounds to 0.1 mm or 0.001 rad: plenty for drawing, and it keeps packets small. */
 export const q = (n: number) => Math.round(n * 10000) / 10000;

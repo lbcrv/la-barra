@@ -157,3 +157,41 @@ export function activeRod(team: Side, ballX: number, current: number | null, hys
   if (cur.team !== team) return nearest.id;
   return Math.abs(nearest.x - ballX) < Math.abs(cur.x - ballX) - hysteresis ? nearest.id : current;
 }
+
+/**
+ * How far from its rod a boot can meet the ball, along the table: forward on
+ * the swing, and back on the draw. Past these, that rod can't touch it.
+ */
+export const BOOT_REACH = { forward: 0.06, back: 0.045 };
+/** A player within this distance across the table can take the ball. */
+const TOUCH_ACROSS = 0.02;
+
+/** Whether any player of either team could touch a ball at (x, z) with their rod in the right place. */
+export function reachable(x: number, z: number): boolean {
+  return RODS.some((rod) => {
+    const along = (x - rod.x) * attackDir(rod.team);
+    if (along < -BOOT_REACH.back || along > BOOT_REACH.forward) return false;
+    return manOffsets(rod).some((o) => Math.abs(clampSlide(rod, z - o) + o - z) < TOUCH_ACROSS);
+  });
+}
+
+/**
+ * The way a ball at (x, z) should roll to get back into play: toward the
+ * nearest spot some player can reach, first along the table at the same
+ * distance across, and toward the middle if no spot along that line is
+ * reachable (a corner beyond the keepers). A unit vector, or null if the
+ * ball is already reachable.
+ */
+export function towardPlay(x: number, z: number): { x: number; z: number } | null {
+  if (reachable(x, z)) return null;
+  const limit = FIELD.length / 2;
+  for (let d = 0.005; d <= 0.2; d += 0.005) {
+    for (const s of [-1, 1]) {
+      const nx = x + s * d;
+      if (Math.abs(nx) < limit && reachable(nx, z)) return { x: s, z: 0 };
+    }
+  }
+  // Nowhere along this line: roll toward the middle of the table.
+  const len = Math.hypot(x, z) || 1;
+  return { x: -x / len, z: -z / len };
+}
