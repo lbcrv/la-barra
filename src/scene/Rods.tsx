@@ -2,14 +2,18 @@
 
 import { CoefficientCombineRule } from "@dimforge/rapier3d-compat";
 import { CuboidCollider, RigidBody, useBeforePhysicsStep, type RapierRigidBody } from "@react-three/rapier";
+import { Outlines } from "@react-three/drei";
+import { useFrame } from "@react-three/fiber";
 import { useEffect, useMemo, useRef, useState, type RefObject } from "react";
-import { Quaternion, Vector3 } from "three";
+import { Quaternion, Vector3, type Group } from "three";
 import { KEY_SPEED, ROD_SPEED, type Inputs } from "@/game/input";
 import { KICK, restingKick, stepKick } from "@/game/kick";
 import { activeRod, attackDir, clampSlide, MAN, manOffsets, ROD_Y, RODS, slideToward, type RodSpec } from "@/game/rods";
 import { CABINET, FIELD, WALL } from "@/game/table";
 import { TEAMS, type Side } from "@/game/teams";
 import type { BallHandle } from "./Ball";
+import { Figure, lookFor } from "./Figure";
+import { INK, OUTLINE_PX, toonGradient } from "./toon";
 
 /**
  * Players bounce the ball off painted wood, and the ball slides off the boot
@@ -48,6 +52,21 @@ export function Rods({
   // Mirrors `current` for rendering the highlighted handle; updated only when it changes.
   const [active, setActive] = useState<Record<Side, number | null>>({ red: null, blue: null });
   const turn = useMemo(() => new Quaternion(), []);
+  // Each rod's player groups, for the cartoon squash and stretch.
+  const figures = useRef<(Group | null)[][]>(RODS.map(() => []));
+
+  // Visual only: players squash as the kick is drawn back and stretch as it lands.
+  useFrame(() => {
+    RODS.forEach((_, i) => {
+      const k = kicks.current[i];
+      let sy = 1;
+      if (k.phase === "windup") sy = 1 - 0.14 * Math.min(1, k.held / 0.35);
+      else if (k.phase === "strike") sy = 1.16;
+      else if (k.phase === "recover") sy = 1 + 0.16 * Math.max(0, k.angle - 0.6);
+      const sx = 1 / Math.sqrt(sy);
+      for (const g of figures.current[i]) g?.scale.set(sx, sy, sx);
+    });
+  });
 
   // Development only: lets a test read what the rods are doing.
   useEffect(() => {
@@ -101,13 +120,30 @@ export function Rods({
   return (
     <>
       {RODS.map((rod, i) => (
-        <Rod key={rod.id} rod={rod} active={active[rod.team] === rod.id} bodyRef={(b) => (bodies.current[i] = b)} />
+        <Rod
+          key={rod.id}
+          rod={rod}
+          active={active[rod.team] === rod.id}
+          bodyRef={(b) => (bodies.current[i] = b)}
+          figureRef={(k, g) => (figures.current[i][k] = g)}
+        />
       ))}
     </>
   );
 }
 
-function Rod({ rod, active, bodyRef }: { rod: RodSpec; active: boolean; bodyRef: (b: RapierRigidBody | null) => void }) {
+function Rod({
+  rod,
+  active,
+  bodyRef,
+  figureRef,
+}: {
+  rod: RodSpec;
+  active: boolean;
+  bodyRef: (b: RapierRigidBody | null) => void;
+  figureRef: (index: number, g: Group | null) => void;
+}) {
+  const grad = toonGradient();
   const team = TEAMS[rod.team];
   // Red stands on the near side (+z), blue on the far side.
   const handleDir = rod.team === "red" ? 1 : -1;
@@ -125,7 +161,7 @@ function Rod({ rod, active, bodyRef }: { rod: RodSpec; active: boolean; bodyRef:
       position={[rod.x, ROD_Y, 0]}
       userData={{ name: `rod${rod.id}-${rod.team}-${rod.role}` }}
     >
-      {manOffsets(rod).map((z) => (
+      {manOffsets(rod).map((z, k) => (
         <group key={z}>
           <CuboidCollider args={[MAN.thick / 2, legLength / 2, MAN.width / 2]} position={[0, -legLength / 2, z]} {...MAN_PHYSICS} />
           <CuboidCollider
@@ -133,65 +169,29 @@ function Rod({ rod, active, bodyRef }: { rod: RodSpec; active: boolean; bodyRef:
             position={[0, -MAN.reach + MAN.footHeight / 2, z]}
             {...MAN_PHYSICS}
           />
-          <Figure z={z} color={team.color} worn={team.worn} facing={attackDir(rod.team)} />
+          <Figure
+            ref={(g) => figureRef(k, g)}
+            z={z}
+            jersey={team.color}
+            shorts={team.shorts}
+            facing={attackDir(rod.team)}
+            look={lookFor(rod.id * 10 + k)}
+          />
         </group>
       ))}
 
       {/* Steel rod through the cabinet. */}
       <mesh rotation-x={Math.PI / 2} position={[0, 0, centre]} castShadow>
         <cylinderGeometry args={[0.0075, 0.0075, length, 12]} />
-        <meshStandardMaterial color="#b9bcc0" metalness={0.9} roughness={0.28} />
+        <meshToonMaterial color="#8f969f" gradientMap={grad} />
+        <Outlines thickness={OUTLINE_PX * 0.8} color={INK} />
       </mesh>
       {/* Rubber handle on the owner's side; it warms up when this rod has the ball. */}
       <mesh rotation-x={Math.PI / 2} position={[0, 0, handleDir * (reachHandle - 0.055)]} castShadow>
         <cylinderGeometry args={[0.017, 0.015, 0.11, 16]} />
-        <meshStandardMaterial
-          color="#1b1714"
-          roughness={0.8}
-          emissive={team.color}
-          emissiveIntensity={active ? 0.55 : 0}
-        />
+        <meshToonMaterial color={active ? team.color : "#2a211b"} gradientMap={grad} emissive={team.color} emissiveIntensity={active ? 0.35 : 0} />
+        <Outlines thickness={OUTLINE_PX} color={INK} />
       </mesh>
     </RigidBody>
-  );
-}
-
-/**
- * One painted wooden player, in rod coordinates: the rod runs through the
- * chest, the head above it, the legs and boot hanging to just above the field.
- */
-function Figure({ z, color, worn, facing }: { z: number; color: string; worn: string; facing: 1 | -1 }) {
-  const legLength = MAN.reach - MAN.footHeight;
-  return (
-    <group position={[0, 0, z]}>
-      {/* Shirt: from the waist up past the rod to the shoulders. */}
-      <mesh position={[0, 0.006, 0]} castShadow>
-        <boxGeometry args={[MAN.thick + 0.004, 0.042, MAN.width]} />
-        <meshStandardMaterial color={color} roughness={0.55} />
-      </mesh>
-      {/* Head and painted hair. */}
-      <mesh position={[0, 0.037, 0]} castShadow>
-        <sphereGeometry args={[0.012, 16, 12]} />
-        <meshStandardMaterial color="#c89468" roughness={0.6} />
-      </mesh>
-      <mesh position={[0, 0.041, 0]} scale={[1.02, 0.75, 1.02]}>
-        <sphereGeometry args={[0.012, 16, 8, 0, Math.PI * 2, 0, Math.PI / 2]} />
-        <meshStandardMaterial color="#231a14" roughness={0.7} />
-      </mesh>
-      {/* Shorts and legs. */}
-      <mesh position={[0, -0.022, 0]} castShadow>
-        <boxGeometry args={[MAN.thick, 0.012, MAN.width]} />
-        <meshStandardMaterial color={worn} roughness={0.6} />
-      </mesh>
-      <mesh position={[0, -legLength / 2 - 0.012, 0]} castShadow>
-        <boxGeometry args={[MAN.thick * 0.8, legLength - 0.024, MAN.width * 0.8]} />
-        <meshStandardMaterial color="#c89468" roughness={0.6} />
-      </mesh>
-      {/* Boot, a touch forward, the part that hits the ball. */}
-      <mesh position={[facing * 0.003, -MAN.reach + MAN.footHeight / 2, 0]} castShadow>
-        <boxGeometry args={[MAN.thick + 0.006, MAN.footHeight, MAN.footWidth]} />
-        <meshStandardMaterial color="#151210" roughness={0.5} />
-      </mesh>
-    </group>
   );
 }

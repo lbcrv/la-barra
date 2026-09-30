@@ -1,10 +1,12 @@
 "use client";
 
+import { Outlines, Trail } from "@react-three/drei";
 import { useFrame } from "@react-three/fiber";
 import { BallCollider, RigidBody, type RapierRigidBody } from "@react-three/rapier";
 import { forwardRef, useEffect, useImperativeHandle, useRef } from "react";
 import type { BallState } from "@/game/bot";
 import { BALL, SERVE } from "@/game/table";
+import { INK, OUTLINE_PX, toonGradient } from "./toon";
 
 export interface BallHandle {
   /** Rolls a new ball in through the serving hole on the near side. */
@@ -25,8 +27,19 @@ const PARKED = { x: 0, y: -0.5, z: 0 };
 /** Seconds a ball may sit still before it counts as dead and is served again. */
 const DEAD_AFTER = 4;
 
-export const Ball = forwardRef<BallHandle, { onDead: () => void }>(function Ball({ onDead }, ref) {
+/** A jump in speed this big in one frame is a hit worth reacting to, in m/s. */
+const HIT_JUMP = 0.6;
+
+export const Ball = forwardRef<
+  BallHandle,
+  {
+    onDead: () => void;
+    /** The ball was struck or bounced hard; `strength` is the speed it gained, in m/s. */
+    onHit?: (strength: number, kind: "kick" | "wall") => void;
+  }
+>(function Ball({ onDead, onHit }, ref) {
   const body = useRef<RapierRigidBody>(null);
+  const lastSpeed = useRef(0);
   const still = useRef(0);
   const live = useRef(false);
 
@@ -88,6 +101,11 @@ export const Ball = forwardRef<BallHandle, { onDead: () => void }>(function Ball
     if (!b || !live.current) return;
     const v = b.linvel();
     const speed = Math.hypot(v.x, v.z);
+    // A sudden gain in speed is a kick; a sudden loss near a wall is a bounce.
+    const jump = speed - lastSpeed.current;
+    if (onHit && jump > HIT_JUMP) onHit(jump, "kick");
+    else if (onHit && jump < -HIT_JUMP) onHit(-jump, "wall");
+    lastSpeed.current = speed;
     still.current = speed < 0.02 ? still.current + dt : 0;
     // Stuck, or somehow off the table: either way the point is over.
     if (still.current > DEAD_AFTER || b.translation().y < -0.3) {
@@ -107,10 +125,13 @@ export const Ball = forwardRef<BallHandle, { onDead: () => void }>(function Ball
       userData={{ name: "ball" }}
     >
       <BallCollider args={[BALL.radius]} mass={BALL.mass} restitution={BALL.restitution} friction={BALL.friction} />
-      <mesh castShadow>
-        <sphereGeometry args={[BALL.radius, 32, 24]} />
-        <meshStandardMaterial color="#efe6d2" roughness={0.45} />
-      </mesh>
+      <Trail width={0.035} length={4} decay={2.2} color="#fff3cf" attenuation={(w) => w * w}>
+        <mesh castShadow>
+          <sphereGeometry args={[BALL.radius, 32, 24]} />
+          <meshToonMaterial color="#fff6e0" gradientMap={toonGradient()} />
+          <Outlines thickness={OUTLINE_PX} color={INK} />
+        </mesh>
+      </Trail>
     </RigidBody>
   );
 });

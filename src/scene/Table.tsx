@@ -1,10 +1,12 @@
 "use client";
 
+import { Outlines } from "@react-three/drei";
 import { CuboidCollider, RigidBody } from "@react-three/rapier";
 import { useMemo } from "react";
 import { BALL, CABINET, FIELD, GOAL, LID_Y, WALL } from "@/game/table";
 import type { Side } from "@/game/teams";
 import { fieldTexture, floorTexture, woodTexture } from "./textures";
+import { INK, OUTLINE_PX, toonGradient } from "./toon";
 
 const HL = FIELD.length / 2;
 const HW = FIELD.width / 2;
@@ -30,6 +32,7 @@ export function Table({ onGoal }: { onGoal: (conceded: Side) => void }) {
   const darkWood = useMemo(() => woodTexture(11, "#4a2c18"), []);
   const field = useMemo(() => fieldTexture(), []);
   const floor = useMemo(() => floorTexture(), []);
+  const grad = toonGradient();
 
   const side = (HW - GOAL.width / 2) / 2; // length of each end wall beside the goal mouth
   const legY = -CABINET.depth - CABINET.legHeight / 2;
@@ -44,7 +47,7 @@ export function Table({ onGoal }: { onGoal: (conceded: Side) => void }) {
         <CuboidCollider args={[HL, 0.02, HW]} position={[0, -0.02, 0]} friction={0.4} restitution={0.25} />
         <mesh rotation-x={-Math.PI / 2} receiveShadow>
           <planeGeometry args={[FIELD.length, FIELD.width]} />
-          <meshStandardMaterial map={field} roughness={0.75} />
+          <meshToonMaterial map={field} gradientMap={grad} />
         </mesh>
       </RigidBody>
 
@@ -60,7 +63,8 @@ export function Table({ onGoal }: { onGoal: (conceded: Side) => void }) {
             <CuboidCollider args={[HL + T, WALL_TOP / 2, T / 2]} position={[0, WALL_TOP / 2, s * (HW + T / 2)]} {...WALL_PHYSICS} />
             <mesh position={[0, H / 2, s * (HW + T / 2)]} castShadow receiveShadow>
               <boxGeometry args={[FIELD.length + 2 * T, H, T]} />
-              <meshStandardMaterial map={wood} roughness={0.55} />
+              <meshToonMaterial map={wood} gradientMap={grad} />
+                    <Outlines thickness={OUTLINE_PX} color={INK} />
             </mesh>
           </group>
         ))}
@@ -78,7 +82,8 @@ export function Table({ onGoal }: { onGoal: (conceded: Side) => void }) {
                   <CuboidCollider args={[T / 2, WALL_TOP / 2, side / 2]} position={[x, WALL_TOP / 2, s * (GOAL.width / 2 + side / 2)]} {...WALL_PHYSICS} />
                   <mesh position={[x, H / 2, s * (GOAL.width / 2 + side / 2)]} castShadow receiveShadow>
                     <boxGeometry args={[T, H, side]} />
-                    <meshStandardMaterial map={wood} roughness={0.55} />
+                    <meshToonMaterial map={wood} gradientMap={grad} />
+                    <Outlines thickness={OUTLINE_PX} color={INK} />
                   </mesh>
                 </group>
               ))}
@@ -89,7 +94,8 @@ export function Table({ onGoal }: { onGoal: (conceded: Side) => void }) {
               />
               <mesh position={[x, GOAL.height + (H - GOAL.height) / 2, 0]} castShadow>
                 <boxGeometry args={[T, H - GOAL.height, GOAL.width]} />
-                <meshStandardMaterial map={wood} roughness={0.55} />
+                <meshToonMaterial map={wood} gradientMap={grad} />
+                    <Outlines thickness={OUTLINE_PX} color={INK} />
               </mesh>
             </RigidBody>
             <GoalPocket dir={dir} onScore={() => onGoal(team)} />
@@ -102,18 +108,20 @@ export function Table({ onGoal }: { onGoal: (conceded: Side) => void }) {
         {[-1, 1].map((s) => (
           <mesh key={`long${s}`} position={[0, (H - CABINET.depth) / 2, s * (outerW / 2 - CABINET.rim / 2)]} castShadow receiveShadow>
             <boxGeometry args={[outerL, H + CABINET.depth, CABINET.rim]} />
-            <meshStandardMaterial map={darkWood} roughness={0.5} />
+            <meshToonMaterial map={darkWood} gradientMap={grad} />
+            <Outlines thickness={OUTLINE_PX * 1.3} color={INK} />
           </mesh>
         ))}
         {[-1, 1].map((s) => (
           <mesh key={`end${s}`} position={[s * (outerL / 2 - CABINET.rim / 2), (H - CABINET.depth) / 2, 0]} castShadow receiveShadow>
             <boxGeometry args={[CABINET.rim, H + CABINET.depth, outerW - 2 * CABINET.rim]} />
-            <meshStandardMaterial map={darkWood} roughness={0.5} />
+            <meshToonMaterial map={darkWood} gradientMap={grad} />
+            <Outlines thickness={OUTLINE_PX * 1.3} color={INK} />
           </mesh>
         ))}
         <mesh position={[0, -CABINET.depth + 0.01, 0]} receiveShadow>
           <boxGeometry args={[outerL, 0.02, outerW]} />
-          <meshStandardMaterial map={darkWood} roughness={0.6} />
+          <meshToonMaterial map={darkWood} gradientMap={grad} />
         </mesh>
         {/* Legs. */}
         {[-1, 1].flatMap((sx) =>
@@ -124,7 +132,8 @@ export function Table({ onGoal }: { onGoal: (conceded: Side) => void }) {
               castShadow
             >
               <boxGeometry args={[CABINET.legSize, CABINET.legHeight, CABINET.legSize]} />
-              <meshStandardMaterial map={darkWood} roughness={0.55} />
+              <meshToonMaterial map={darkWood} gradientMap={grad} />
+              <Outlines thickness={OUTLINE_PX} color={INK} />
             </mesh>
           )),
         )}

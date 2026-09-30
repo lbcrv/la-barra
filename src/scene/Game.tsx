@@ -13,10 +13,13 @@ import { Hud, Victory } from "@/ui/Hud";
 import { Menu } from "@/ui/Menu";
 import { type Lang } from "@/ui/strings";
 import { Aim } from "./Aim";
+import { Backdrop } from "./Backdrop";
 import { Ball, type BallHandle } from "./Ball";
 import { BotDriver } from "./BotDriver";
+import { Confetti } from "./Confetti";
 import { CameraRig, Fill, Lamp } from "./Room";
 import { Rods } from "./Rods";
+import { Scoreboard } from "./Scoreboard";
 import { Table } from "./Table";
 
 /** Pause after a goal before the next ball rolls in, so the goal can land. */
@@ -45,6 +48,9 @@ export function Game() {
   // Null while the menu is up and the bots play a demo behind it.
   const [match, setMatch] = useState<Match | null>(null);
   const [view, setView] = useState(0);
+  // Each goal fires a confetti burst from the net it went into.
+  const [burst, setBurst] = useState<{ n: number; scorer: Side | null; conceded: Side | null }>({ n: 0, scorer: null, conceded: null });
+  const shake = useRef(0);
 
   const ball = useRef<BallHandle>(null);
   const inputs = useRef<Inputs>(idleInputs());
@@ -111,6 +117,8 @@ export function Game() {
     (conceded: Side) => {
       if (scored.current) return;
       scored.current = true;
+      shake.current = 1;
+      setBurst((b) => ({ n: b.n + 1, scorer: conceded === "red" ? "blue" : "red", conceded }));
       const m = matchRef.current;
       const next = m ? goal(m, conceded) : null;
       if (next) update(next);
@@ -226,13 +234,22 @@ export function Game() {
         onContextMenu={(e) => e.preventDefault()}
       >
         <Fill />
-        <CameraRig resetKey={view} spin={!match} />
+        <CameraRig resetKey={view} spin={!match} shakeRef={shake} />
+        <Backdrop />
+        <Scoreboard score={match?.score ?? { red: 0, blue: 0 }} />
+        <Confetti burst={burst.n} side={burst.scorer} goalOf={burst.conceded} />
         <Lamp />
         <Aim aimingRef={aiming} onAim={(z) => (inputs.current.red.pointerZ = z)} />
         <Suspense fallback={null}>
           <Physics gravity={[0, -9.81, 0]} timeStep={1 / PHYSICS_HZ}>
             <Table onGoal={onGoal} />
-            <Ball ref={ball} onDead={serve} />
+            <Ball
+              ref={ball}
+              onDead={serve}
+              onHit={(strength, kind) => {
+                if (kind === "kick" && strength > 2) shake.current = Math.max(shake.current, Math.min(0.45, strength / 10));
+              }}
+            />
             <BotDriver botsRef={bots} inputsRef={inputs} ballRef={ball} slidesRef={slides} />
             <Rods inputs={inputs} ball={ball} slidesRef={slides} />
           </Physics>

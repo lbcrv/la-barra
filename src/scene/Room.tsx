@@ -1,8 +1,8 @@
 "use client";
 
-import { useThree } from "@react-three/fiber";
+import { useFrame, useThree } from "@react-three/fiber";
 import { OrbitControls } from "@react-three/drei";
-import { useLayoutEffect, useMemo, useRef } from "react";
+import { useLayoutEffect, useMemo, useRef, type RefObject } from "react";
 import { MOUSE, TOUCH, Vector3 } from "three";
 import type { OrbitControls as OrbitControlsImpl } from "three-stdlib";
 import { CABINET, FIELD, WALL } from "@/game/table";
@@ -38,7 +38,7 @@ export function Lamp() {
       </mesh>
       <pointLight
         color="#ffd9a3"
-        intensity={3.2}
+        intensity={2.4}
         distance={0}
         decay={2}
         castShadow
@@ -54,7 +54,9 @@ export function Lamp() {
 export function Fill() {
   return (
     <>
-      <hemisphereLight args={["#6b5a48", "#0b0907", 0.35]} />
+      {/* Cartoon light: a warm, even fill so colours stay bold, and a key from the bulb. */}
+      <hemisphereLight args={["#fff1d6", "#3a2a1e", 1.1]} />
+      <directionalLight position={[-0.6, 2, 1.2]} intensity={0.9} color="#fff4e0" />
       <color attach="background" args={[ROOM]} />
     </>
   );
@@ -103,8 +105,32 @@ const LOWEST_VIEW = (22 * Math.PI) / 180;
  * and a single finger stay free for play. `resetKey` changing puts the camera
  * back where it started; `spin` turns it slowly around the table. The room's fog always sits behind the furthest view.
  */
-export function CameraRig({ resetKey, spin = false }: { resetKey: number; spin?: boolean }) {
+export function CameraRig({
+  resetKey,
+  spin = false,
+  shakeRef,
+}: {
+  resetKey: number;
+  spin?: boolean;
+  /** Shake strength, 0 to 1; anyone can bump it and it fades on its own. */
+  shakeRef?: RefObject<number>;
+}) {
   const { camera, size } = useThree();
+  const nudge = useRef(new Vector3());
+
+  // Take last frame's shake off before the controls move the camera (they run at -1)...
+  useFrame(() => {
+    camera.position.sub(nudge.current);
+    nudge.current.set(0, 0, 0);
+  }, -2);
+  // ...and put a fresh one on after, so the shake never drifts the view.
+  useFrame((_, dt) => {
+    if (!shakeRef || shakeRef.current <= 0.001) return;
+    const s = shakeRef.current * 0.012;
+    nudge.current.set((Math.random() - 0.5) * s, (Math.random() - 0.5) * s, (Math.random() - 0.5) * s);
+    camera.position.add(nudge.current);
+    shakeRef.current *= Math.exp(-dt * 7);
+  });
   const controls = useRef<OrbitControlsImpl>(null);
   const fov = "fov" in camera ? camera.fov : 38;
   const frame = useMemo(() => framing(fov, size.width / size.height), [fov, size.width, size.height]);
