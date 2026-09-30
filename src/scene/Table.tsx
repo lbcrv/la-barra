@@ -2,9 +2,10 @@
 
 import { Outlines } from "@react-three/drei";
 import { CuboidCollider, RigidBody } from "@react-three/rapier";
-import { useEffect, useMemo } from "react";
+import { memo, useEffect, useMemo } from "react";
 import { BALL, CABINET, FIELD, GOAL, LID_Y, WALL } from "@/game/table";
 import type { Side } from "@/game/teams";
+import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
 import { fieldTexture, floorTexture, woodBox, woodTexture } from "./textures";
 import { INK, OUTLINE_PX, toonGradient } from "./toon";
 
@@ -27,7 +28,7 @@ const WALL_PHYSICS = { restitution: 0.7, friction: 0.2 };
  * pocket behind each, and the cabinet and legs around it. `onGoal` receives the
  * side whose goal the ball fell into.
  */
-export function Table({ onGoal }: { onGoal: (conceded: Side) => void }) {
+export const Table = memo(function Table({ onGoal }: { onGoal: (conceded: Side) => void }) {
   const wood = useMemo(() => woodTexture(7), []);
   const darkWood = useMemo(() => woodTexture(11, "#4a2c18"), []);
   const field = useMemo(() => fieldTexture(), []);
@@ -39,6 +40,42 @@ export function Table({ onGoal }: { onGoal: (conceded: Side) => void }) {
   const floorY = -CABINET.depth - CABINET.legHeight;
   const outerL = FIELD.length + 2 * (T + CABINET.rim);
   const outerW = FIELD.width + 2 * (T + CABINET.rim);
+
+  const pieces = useMemo(() => {
+    type Box = [size: [number, number, number], at: [number, number, number]];
+    const light: Box[] = [];
+    const dark: Box[] = [];
+    for (const s of [-1, 1]) light.push([[FIELD.length + 2 * T, H, T], [0, H / 2, s * (HW + T / 2)]]);
+    for (const dir of [-1, 1]) {
+      const x = dir * (HL + T / 2);
+      for (const s of [-1, 1]) light.push([[T, H, side], [x, H / 2, s * (GOAL.width / 2 + side / 2)]]);
+      light.push([[T, H - GOAL.height, GOAL.width], [x, GOAL.height + (H - GOAL.height) / 2, 0]]);
+    }
+    for (const s of [-1, 1]) {
+      dark.push([[outerL, H + CABINET.depth, CABINET.rim], [0, (H - CABINET.depth) / 2, s * (outerW / 2 - CABINET.rim / 2)]]);
+      dark.push([[CABINET.rim, H + CABINET.depth, outerW - 2 * CABINET.rim], [s * (outerL / 2 - CABINET.rim / 2), (H - CABINET.depth) / 2, 0]]);
+    }
+    dark.push([[outerL, 0.02, outerW], [0, -CABINET.depth + 0.01, 0]]);
+    for (const sx of [-1, 1]) {
+      for (const sz of [-1, 1]) {
+        dark.push([[CABINET.legSize, CABINET.legHeight, CABINET.legSize], [sx * (outerL / 2 - CABINET.legSize), legY, sz * (outerW / 2 - CABINET.legSize)]]);
+      }
+    }
+    const build = (boxes: Box[]) => {
+      const geos = boxes.map(([size, at]) => woodBox(...size).translate(...at));
+      const merged = mergeGeometries(geos, false)!;
+      geos.forEach((g) => g.dispose());
+      return merged;
+    };
+    return { light: build(light), dark: build(dark) };
+  }, [side, legY, outerL, outerW]);
+  useEffect(
+    () => () => {
+      pieces.light.dispose();
+      pieces.dark.dispose();
+    },
+    [pieces],
+  );
 
   return (
     <group>
@@ -56,17 +93,10 @@ export function Table({ onGoal }: { onGoal: (conceded: Side) => void }) {
         <CuboidCollider args={[HL + T + GOAL.depth, 0.01, HW + T]} position={[0, LID_Y + 0.01, 0]} restitution={0.3} />
       </RigidBody>
 
-      {/* Long side walls. */}
+      {/* Long side walls: colliders reach up to the lid. */}
       <RigidBody type="fixed" colliders={false} userData={{ name: "side-walls" }}>
         {[-1, 1].map((s) => (
-          <group key={s}>
-            <CuboidCollider args={[HL + T, WALL_TOP / 2, T / 2]} position={[0, WALL_TOP / 2, s * (HW + T / 2)]} {...WALL_PHYSICS} />
-            <mesh position={[0, H / 2, s * (HW + T / 2)]} castShadow receiveShadow>
-              <WoodGeometry args={[FIELD.length + 2 * T, H, T]} />
-              <meshToonMaterial map={wood} gradientMap={grad} />
-              <Outlines thickness={OUTLINE_PX} color={INK} />
-            </mesh>
-          </group>
+          <CuboidCollider key={s} args={[HL + T, WALL_TOP / 2, T / 2]} position={[0, WALL_TOP / 2, s * (HW + T / 2)]} {...WALL_PHYSICS} />
         ))}
       </RigidBody>
 
@@ -78,66 +108,32 @@ export function Table({ onGoal }: { onGoal: (conceded: Side) => void }) {
           <group key={team}>
             <RigidBody type="fixed" colliders={false} userData={{ name: `end-wall-${team}` }}>
               {[-1, 1].map((s) => (
-                <group key={s}>
-                  <CuboidCollider args={[T / 2, WALL_TOP / 2, side / 2]} position={[x, WALL_TOP / 2, s * (GOAL.width / 2 + side / 2)]} {...WALL_PHYSICS} />
-                  <mesh position={[x, H / 2, s * (GOAL.width / 2 + side / 2)]} castShadow receiveShadow>
-                    <WoodGeometry args={[T, H, side]} />
-                    <meshToonMaterial map={wood} gradientMap={grad} />
-                    <Outlines thickness={OUTLINE_PX} color={INK} />
-                  </mesh>
-                </group>
+                <CuboidCollider key={s} args={[T / 2, WALL_TOP / 2, side / 2]} position={[x, WALL_TOP / 2, s * (GOAL.width / 2 + side / 2)]} {...WALL_PHYSICS} />
               ))}
               <CuboidCollider
                 args={[T / 2, (WALL_TOP - GOAL.height) / 2, GOAL.width / 2]}
                 position={[x, GOAL.height + (WALL_TOP - GOAL.height) / 2, 0]}
                 {...WALL_PHYSICS}
               />
-              <mesh position={[x, GOAL.height + (H - GOAL.height) / 2, 0]} castShadow>
-                <WoodGeometry args={[T, H - GOAL.height, GOAL.width]} />
-                <meshToonMaterial map={wood} gradientMap={grad} />
-                    <Outlines thickness={OUTLINE_PX} color={INK} />
-              </mesh>
             </RigidBody>
             <GoalPocket dir={dir} onScore={() => onGoal(team)} />
           </group>
         );
       })}
 
-      {/* Cabinet: the wooden box the field sits in, open at the top. */}
-      <group>
-        {[-1, 1].map((s) => (
-          <mesh key={`long${s}`} position={[0, (H - CABINET.depth) / 2, s * (outerW / 2 - CABINET.rim / 2)]} castShadow receiveShadow>
-            <WoodGeometry args={[outerL, H + CABINET.depth, CABINET.rim]} />
-            <meshToonMaterial map={darkWood} gradientMap={grad} />
-            <Outlines thickness={OUTLINE_PX * 1.3} color={INK} />
-          </mesh>
-        ))}
-        {[-1, 1].map((s) => (
-          <mesh key={`end${s}`} position={[s * (outerL / 2 - CABINET.rim / 2), (H - CABINET.depth) / 2, 0]} castShadow receiveShadow>
-            <WoodGeometry args={[CABINET.rim, H + CABINET.depth, outerW - 2 * CABINET.rim]} />
-            <meshToonMaterial map={darkWood} gradientMap={grad} />
-            <Outlines thickness={OUTLINE_PX * 1.3} color={INK} />
-          </mesh>
-        ))}
-        <mesh position={[0, -CABINET.depth + 0.01, 0]} receiveShadow>
-          <WoodGeometry args={[outerL, 0.02, outerW]} />
-          <meshToonMaterial map={darkWood} gradientMap={grad} />
-        </mesh>
-        {/* Legs. */}
-        {[-1, 1].flatMap((sx) =>
-          [-1, 1].map((sz) => (
-            <mesh
-              key={`${sx}${sz}`}
-              position={[sx * (outerL / 2 - CABINET.legSize), legY, sz * (outerW / 2 - CABINET.legSize)]}
-              castShadow
-            >
-              <WoodGeometry args={[CABINET.legSize, CABINET.legHeight, CABINET.legSize]} />
-              <meshToonMaterial map={darkWood} gradientMap={grad} />
-              <Outlines thickness={OUTLINE_PX} color={INK} />
-            </mesh>
-          )),
-        )}
-      </group>
+      {/*
+        All the wood, drawn as two meshes: the light playing walls and the dark
+        cabinet with its legs. One draw call and one outline each, instead of
+        seventeen boxes with seventeen outlines.
+      */}
+      <mesh geometry={pieces.light} castShadow receiveShadow>
+        <meshToonMaterial map={wood} gradientMap={grad} />
+        <Outlines thickness={OUTLINE_PX} color={INK} />
+      </mesh>
+      <mesh geometry={pieces.dark} castShadow receiveShadow>
+        <meshToonMaterial map={darkWood} gradientMap={grad} />
+        <Outlines thickness={OUTLINE_PX * 1.3} color={INK} />
+      </mesh>
 
       {/* The shop floor. */}
       <mesh rotation-x={-Math.PI / 2} position={[0, floorY, 0]} receiveShadow>
@@ -146,7 +142,7 @@ export function Table({ onGoal }: { onGoal: (conceded: Side) => void }) {
       </mesh>
     </group>
   );
-}
+});
 
 /**
  * The box behind a goal mouth. It starts right at the edge of the field, so
@@ -186,11 +182,4 @@ function GoalPocket({ dir, onScore }: { dir: -1 | 1; onScore: () => void }) {
       </mesh>
     </RigidBody>
   );
-}
-
-/** A box with wood grain at its real size; see `woodBox`. */
-function WoodGeometry({ args }: { args: [number, number, number] }) {
-  const geometry = useMemo(() => woodBox(...args), [args[0], args[1], args[2]]); // eslint-disable-line react-hooks/exhaustive-deps
-  useEffect(() => () => geometry.dispose(), [geometry]);
-  return <primitive object={geometry} attach="geometry" />;
 }

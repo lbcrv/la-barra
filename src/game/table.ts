@@ -35,8 +35,9 @@ export const CABINET = { rim: 0.07, depth: 0.2, legHeight: 0.62, legSize: 0.07 }
 
 /**
  * Physics steps per second. A full-power kick turns the rod at about 60 rad/s;
- * at this rate the boot moves under 1 cm per step, less than the ball's radius,
- * so it always meets the ball face on instead of jumping past it.
+ * at this rate the boot moves under 1 cm per step and meets the ball face on.
+ * At 360 Hz (1.2 cm a step) shots glanced off the boot, weak and sideways, and
+ * stopped scoring, so this stays at 480. It costs well under a millisecond a frame.
  */
 export const PHYSICS_HZ = 480;
 

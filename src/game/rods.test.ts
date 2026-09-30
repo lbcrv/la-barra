@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { activeRod, BOOT_REACH, clampSlide, manOffsets, MAN, reachable, RODS, slideToward, stepSlide, towardPlay } from "./rods";
+import { activeRod, BOOT_REACH, handleSlide, clampSlide, manOffsets, MAN, reachable, RODS, slideToward, stepSlide, towardPlay } from "./rods";
 import { FIELD } from "./table";
 
 describe("rod layout", () => {
@@ -107,7 +107,8 @@ describe("stepSlide", () => {
 
   it("speeds up gradually instead of jumping to full speed", () => {
     const s = stepSlide({ x: 0, v: 0 }, 0.3, 1 / 480, 2.4);
-    expect(s.v).toBeLessThan(0.2);
+    expect(s.v).toBeLessThan(0.5);
+    expect(s.v).toBeGreaterThan(0);
   });
 
   it("never exceeds the top speed", () => {
@@ -156,5 +157,18 @@ describe("towardPlay", () => {
       z += d.z * 0.005;
     }
     expect(reachable(x, z)).toBe(true);
+  });
+});
+
+describe("handleSlide", () => {
+  it("moves every rod the same fraction of its travel, with no jumps", () => {
+    for (const rod of RODS) {
+      expect(handleSlide(rod, 1)).toBeCloseTo(rod.travel);
+      expect(handleSlide(rod, -0.5)).toBeCloseTo(-rod.travel / 2);
+      // Continuous: a small move of the hand is a small move of the rod.
+      for (let h = -1; h < 1; h += 0.01) {
+        expect(Math.abs(handleSlide(rod, h + 0.01) - handleSlide(rod, h))).toBeLessThan(rod.travel * 0.011);
+      }
+    }
   });
 });

@@ -4,11 +4,12 @@ import { CoefficientCombineRule } from "@dimforge/rapier3d-compat";
 import { CuboidCollider, RigidBody, useBeforePhysicsStep, type RapierRigidBody } from "@react-three/rapier";
 import { Outlines } from "@react-three/drei";
 import { useFrame } from "@react-three/fiber";
-import { useEffect, useMemo, useRef, useState, type RefObject } from "react";
-import { Quaternion, Vector3, type Group } from "three";
-import { KEY_SPEED, ROD_SPEED, type Inputs } from "@/game/input";
+import { memo, useEffect, useMemo, useRef, useState, type RefObject } from "react";
+import { Color, CylinderGeometry, Float32BufferAttribute, Matrix4, Quaternion, Vector3, type BufferGeometry, type Group } from "three";
+import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
+import { clampHandle, KEY_SWEEP, ROD_SPEED, type Inputs } from "@/game/input";
 import { KICK, restingKick, stepKick } from "@/game/kick";
-import { activeRod, attackDir, clampSlide, MAN, manOffsets, ROD_Y, RODS, slideToward, stepSlide, type RodSpec, type SlideState } from "@/game/rods";
+import { activeRod, attackDir, handleSlide, MAN, manOffsets, ROD_Y, RODS, slideToward, stepSlide, type RodSpec, type SlideState } from "@/game/rods";
 import { CABINET, FIELD, WALL } from "@/game/table";
 import { TEAMS, type Side } from "@/game/teams";
 import type { BallHandle } from "./Ball";
@@ -42,8 +43,8 @@ export interface RemoteRods {
  * asking for (the pointer, the keys or the bot), and the side's active rod,
  * the one nearest the ball, turns through its kick.
  */
-export function Rods({
-  inputs,
+export const Rods = memo(function Rods({
+  inputsRef,
   ball,
   slidesRef,
   speedRef,
@@ -51,7 +52,7 @@ export function Rods({
   activeRef,
   remoteRef,
 }: {
-  inputs: RefObject<Inputs>;
+  inputsRef: RefObject<Inputs>;
   ball: RefObject<BallHandle | null>;
   /** Where each rod sits, written every step so the bot can see its own players. */
   slidesRef: RefObject<number[]>;
@@ -74,6 +75,9 @@ export function Rods({
   const turn = useMemo(() => new Quaternion(), []);
   // Each rod's upper bodies, for the cartoon squash and stretch.
   const uppers = useRef<(Group | null)[]>([]);
+  // Stable ref callbacks, so a rod only re-renders when its own handle lights up.
+  const bodyRefs = useMemo(() => RODS.map((_, i) => (b: RapierRigidBody | null) => void (bodies.current[i] = b)), []);
+  const upperRefs = useMemo(() => RODS.map((_, i) => (g: Group | null) => void (uppers.current[i] = g)), []);
 
   // Online guest: copy the host's rods straight onto the bodies. Physics is paused
   // there, and the renderer still draws each body wherever it is placed.
@@ -142,13 +146,26 @@ export function Rods({
     }
     if (changed) setActive({ ...current.current });
 
+    // Held keys sweep a side's handle; it starts from where its rods are.
+    for (const team of ["red", "blue"] as const) {
+      const input = inputsRef.current[team];
+      if (input.keyDir === 0) continue;
+      if (input.handle === null) {
+        const mid = RODS.findIndex((r) => r.team === team && r.role === "midfield");
+        input.handle = clampHandle(slides.current[mid] / RODS[mid].travel);
+      }
+      input.handle = clampHandle(input.handle + input.keyDir * KEY_SWEEP * speedRef.current[team] * dt);
+      input.pointerZ = null;
+    }
+
     RODS.forEach((rod, i) => {
-      const input = inputs.current[rod.team];
+      const input = inputsRef.current[rod.team];
       const boost = speedRef.current[rod.team];
       const now = motion.current[i];
       let target = now.x;
-      if (input.pointerZ !== null) target = slideToward(rod, input.pointerZ, now.x);
-      else if (input.keyDir !== 0) target = clampSlide(rod, now.x + input.keyDir * KEY_SPEED * boost * 0.08);
+      // A person's hand moves every rod as one; the bot aims a player at a point.
+      if (input.handle !== null) target = handleSlide(rod, input.handle);
+      else if (input.pointerZ !== null) target = slideToward(rod, input.pointerZ, now.x);
       motion.current[i] = stepSlide(now, target, dt, ROD_SPEED * boost);
       slides.current[i] = motion.current[i].x;
 
@@ -170,19 +187,13 @@ export function Rods({
     <>
       <Bushings />
       {RODS.map((rod, i) => (
-        <Rod
-          key={rod.id}
-          rod={rod}
-          active={active[rod.team] === rod.id}
-          bodyRef={(b) => (bodies.current[i] = b)}
-          upperRef={(g) => (uppers.current[i] = g)}
-        />
+        <Rod key={rod.id} rod={rod} active={active[rod.team] === rod.id} bodyRef={bodyRefs[i]} upperRef={upperRefs[i]} />
       ))}
     </>
   );
-}
+});
 
-function Rod({
+const Rod = memo(function Rod({
   rod,
   active,
   bodyRef,
@@ -246,8 +257,8 @@ function Rod({
       {/* Steel rod through the cabinet. */}
       <mesh rotation-x={Math.PI / 2} position={[0, 0, centre]} castShadow>
         <cylinderGeometry args={[0.0075, 0.0075, length, 12]} />
+        {/* Thin enough that an outline adds a draw call and little else. */}
         <meshToonMaterial color="#8f969f" gradientMap={grad} />
-        <Outlines thickness={OUTLINE_PX * 0.8} color={INK} />
       </mesh>
       {/* Rubber handle on the owner's side; it warms up when this rod has the ball. */}
       <mesh rotation-x={Math.PI / 2} position={[0, 0, handleDir * (reachHandle - 0.055)]} castShadow>
@@ -257,34 +268,50 @@ function Rod({
       </mesh>
     </RigidBody>
   );
-}
+});
+
+const bushingGeometry = (() => {
+  const parts: BufferGeometry[] = [];
+  const m = new Matrix4();
+  const q = new Quaternion().setFromAxisAngle(new Vector3(1, 0, 0), Math.PI / 2);
+  const brass = new Color("#c9a24a");
+  const collar = new Color("#8a6d2c");
+  const paint = (g: BufferGeometry, c: Color) => {
+    const n = g.getAttribute("position").count;
+    const colors = new Float32Array(n * 3);
+    for (let k = 0; k < n; k++) colors.set([c.r, c.g, c.b], k * 3);
+    g.setAttribute("color", new Float32BufferAttribute(colors, 3));
+    g.deleteAttribute("uv");
+    return g;
+  };
+  for (const rod of RODS) {
+    for (const side of [-1, 1]) {
+      const z = side * (CABINET_HALF + 0.004);
+      // Flange against the wood, then the collar the rod runs in.
+      const flange = new CylinderGeometry(0.017, 0.017, 0.004, 20);
+      flange.applyMatrix4(m.compose(new Vector3(rod.x, ROD_Y, z), q, new Vector3(1, 1, 1)));
+      parts.push(paint(flange, brass));
+      const ring = new CylinderGeometry(0.0115, 0.0115, 0.01, 16);
+      ring.applyMatrix4(m.compose(new Vector3(rod.x, ROD_Y, z + side * 0.006), q, new Vector3(1, 1, 1)));
+      parts.push(paint(ring, collar));
+    }
+  }
+  const merged = mergeGeometries(parts, false)!;
+  parts.forEach((g) => g.dispose());
+  return merged;
+})();
 
 /**
  * The bearings where each rod passes through the cabinet: a flanged ring on
- * both outer faces. Without them the rods looked driven straight through the
- * wood. They stay put while the rods slide and turn inside them.
+ * both outer faces, all sixteen merged into one mesh. They stay put while the
+ * rods slide and turn inside them.
  */
 function Bushings() {
   const grad = toonGradient();
   return (
-    <group>
-      {RODS.flatMap((rod) =>
-        [-1, 1].map((side) => (
-          <group key={`${rod.id}${side}`} position={[rod.x, ROD_Y, side * (CABINET_HALF + 0.004)]} rotation-x={Math.PI / 2}>
-            {/* Flange against the wood, then the collar the rod runs in. */}
-            <mesh>
-              <cylinderGeometry args={[0.017, 0.017, 0.004, 20]} />
-              <meshToonMaterial color="#c9a24a" gradientMap={grad} />
-              <Outlines thickness={OUTLINE_PX * 0.8} color={INK} />
-            </mesh>
-            <mesh position={[0, side * 0.006, 0]}>
-              <cylinderGeometry args={[0.0115, 0.0115, 0.01, 16]} />
-              <meshToonMaterial color="#8a6d2c" gradientMap={grad} />
-              <Outlines thickness={OUTLINE_PX * 0.8} color={INK} />
-            </mesh>
-          </group>
-        )),
-      )}
-    </group>
+    <mesh geometry={bushingGeometry}>
+      <meshToonMaterial vertexColors gradientMap={grad} />
+      <Outlines thickness={OUTLINE_PX * 0.8} color={INK} />
+    </mesh>
   );
 }

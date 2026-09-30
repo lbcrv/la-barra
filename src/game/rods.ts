@@ -108,11 +108,14 @@ export function slideToward(rod: RodSpec, z: number, from = 0): number {
 
 /** How a rod slides: top speed and how hard a wrist can start and stop it. */
 export const SLIDE = {
-  /** Time to close the gap to the target, like a hand easing onto it (s). */
-  settle: 0.035,
-  /** Acceleration and braking limit (m/s²). */
-  accel: 60,
+  /** Time to close the gap to the target, like a hand easing onto it (s). Short: rods should feel direct. */
+  settle: 0.016,
+  /** Acceleration and braking limit (m/s²): a quick wrist. */
+  accel: 140,
 };
+
+/** Where a rod sits for a handle position (-1 to 1): the same fraction of its own travel. */
+export const handleSlide = (rod: RodSpec, handle: number) => clampSlide(rod, handle * rod.travel);
 
 export interface SlideState {
   x: number;

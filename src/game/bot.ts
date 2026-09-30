@@ -71,7 +71,7 @@ export class Bot {
   // simply a bit off; re-rolling it at every look made the rod tremble.
   private error = 0;
   private errorAt: { x: number; z: number } | null = null;
-  readonly input: TeamInput = { pointerZ: 0, keyDir: 0, kick: false };
+  readonly input: TeamInput = { handle: null, pointerZ: 0, keyDir: 0, kick: false };
 
   constructor(
     readonly team: Side,

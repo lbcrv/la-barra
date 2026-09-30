@@ -3,7 +3,7 @@
 import { useFrame, useThree } from "@react-three/fiber";
 import { OrbitControls } from "@react-three/drei";
 import { useLayoutEffect, useMemo, useRef, type RefObject } from "react";
-import { MOUSE, TOUCH, Vector3 } from "three";
+import { MOUSE, TOUCH, Vector3, type Group } from "three";
 import type { OrbitControls as OrbitControlsImpl } from "three-stdlib";
 import { CABINET, FIELD, WALL } from "@/game/table";
 
@@ -16,26 +16,31 @@ export const ROOM = "#120e0b";
  * the shop after hours. Everything else falls off into the dark.
  */
 export function Lamp() {
-  // Seen from behind the goal on a tall screen, the shade would hang right in
-  // front of the far half of the table; there only its light remains.
-  const { size } = useThree();
-  const showFixture = size.width >= size.height;
+  // Looked at from above the bulb (a tall screen, or the camera orbited up), the
+  // shade hangs between the eye and the table and hides half of it. The fixture
+  // is only drawn while the camera is below the bulb; its light always stays.
+  const fixture = useRef<Group>(null);
+  useFrame(({ camera }) => {
+    if (fixture.current) fixture.current.visible = camera.position.y < BULB_Y;
+  });
   return (
     <group position={[0, BULB_Y, 0]}>
+      <group ref={fixture}>
       {/* Cord up into the dark. */}
-      <mesh position={[0, 0.6, 0]} visible={showFixture}>
+      <mesh position={[0, 0.6, 0]}>
         <cylinderGeometry args={[0.003, 0.003, 1.1, 6]} />
         <meshStandardMaterial color="#111" />
       </mesh>
       {/* Tin shade, open at the bottom. */}
-      <mesh position={[0, 0.03, 0]} castShadow={false} visible={showFixture}>
+      <mesh position={[0, 0.03, 0]} castShadow={false}>
         <coneGeometry args={[0.16, 0.1, 32, 1, true]} />
         <meshStandardMaterial color="#3d4a3f" metalness={0.6} roughness={0.45} side={2} />
       </mesh>
-      <mesh visible={showFixture}>
+      <mesh>
         <sphereGeometry args={[0.035, 16, 12]} />
         <meshStandardMaterial color="#fff2cc" emissive="#ffd48a" emissiveIntensity={4} />
       </mesh>
+      </group>
       {/* Warm glow only; the shadows come from the key light below, which renders them once instead of six times. */}
       <pointLight color="#ffd9a3" intensity={2.4} distance={0} decay={2} />
     </group>

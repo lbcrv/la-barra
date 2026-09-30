@@ -4,7 +4,7 @@ import { Canvas } from "@react-three/fiber";
 import { Physics } from "@react-three/rapier";
 import { Suspense, useCallback, useEffect, useRef, useState } from "react";
 import { Bot, type Level } from "@/game/bot";
-import { idleInputs, type Inputs } from "@/game/input";
+import { handleFromAim, idleInputs, type Inputs } from "@/game/input";
 import { goal, matchPoint, newMatch, resume, type Match, type Mode } from "@/game/match";
 import { Narrator, type Call } from "@/game/narrator";
 import { effects, kickerOf, take, type ActivePower, type Power } from "@/game/powerups";
@@ -24,6 +24,7 @@ import { Backdrop } from "./Backdrop";
 import { Ball, type BallHandle } from "./Ball";
 import { BotDriver } from "./BotDriver";
 import { Confetti } from "./Confetti";
+import { DevStats } from "./DevStats";
 import { PowerField } from "./PowerField";
 import { CameraRig, Fill, Lamp } from "./Room";
 import { Mirror, SyncMeshes } from "./Mirror";
@@ -340,7 +341,7 @@ export function Game() {
       s.onMessage = (msg: ToHost) => {
         if (msg.t === "input") {
           const i: HandInput = msg.input;
-          inputs.current.blue = { pointerZ: i.z, keyDir: i.dir, kick: i.kick };
+          inputs.current.blue = { handle: i.z, pointerZ: null, keyDir: i.dir, kick: i.kick };
         } else if (msg.t === "ping" || msg.t === "pong") onPing(msg);
         else if (msg.t === "bye") leaveOnline(strings[langRef.current].net.left);
       };
@@ -472,7 +473,7 @@ export function Game() {
       const s = session.current as GuestSession | null;
       if (!s) return;
       const b = inputs.current.blue;
-      const input: HandInput = { z: b.pointerZ === null ? null : q(b.pointerZ), dir: b.keyDir, kick: b.kick };
+      const input: HandInput = { z: b.handle === null ? null : q(b.handle), dir: b.keyDir, kick: b.kick };
       const json = JSON.stringify(input);
       if (json === last && performance.now() - lastAt < 250) return;
       last = json;
@@ -508,6 +509,7 @@ export function Game() {
       position: () => ball.current?.position(),
       aim: (z: number) => {
         aiming.current = false;
+        inputs.current.red.handle = null;
         inputs.current.red.pointerZ = z;
       },
       play,
@@ -615,7 +617,14 @@ export function Game() {
           mirror={role === "guest" ? remoteCap : undefined}
         />
         <Lamp />
-        <Aim aimingRef={aiming} onAim={(z) => (inputs.current[mouseSide].pointerZ = z)} />
+        <Aim
+          aimingRef={aiming}
+          onAim={(z) => {
+            const input = inputs.current[mouseSide];
+            input.handle = handleFromAim(z);
+            input.pointerZ = null;
+          }}
+        />
         <Suspense fallback={null}>
           {/* The online guest simulates nothing: it draws what the host sends. */}
           <Physics gravity={[0, -9.81, 0]} timeStep={1 / PHYSICS_HZ} paused={role === "guest"}>
@@ -623,7 +632,7 @@ export function Game() {
             <Ball ref={ball} onDead={restartBall} onHit={onHit} hot={hot} />
             <BotDriver botsRef={bots} inputsRef={inputs} ballRef={ball} slidesRef={slides} />
             <Rods
-              inputs={inputs}
+              inputsRef={inputs}
               ball={ball}
               slidesRef={slides}
               speedRef={rodSpeed}
@@ -631,6 +640,7 @@ export function Game() {
               activeRef={activeRods}
               remoteRef={remoteRods}
             />
+            {process.env.NODE_ENV !== "production" && <DevStats />}
             {role === "guest" && (
               <>
                 <Mirror bufferRef={buffer} ballRef={ball} rodsRef={remoteRods} />

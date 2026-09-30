@@ -59,6 +59,7 @@ export interface Snapshot {
 
 /** What the guest's hand is doing. */
 export interface HandInput {
+  /** The handle, -1 to 1, or null while steering by keys. */
   z: number | null;
   dir: -1 | 0 | 1;
   kick: boolean;
