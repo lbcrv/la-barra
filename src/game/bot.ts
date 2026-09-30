@@ -44,8 +44,12 @@ const REROLL_AFTER = 0.05;
 /** Below this speed (m/s) a ball near the bot's rod counts as under control. */
 const SETTLED_SPEED = 0.15;
 
-/** How close in front of a boot the ball must be, along the attack, for a kick to land. */
-const REACH = { min: -0.004, max: 0.045 };
+/**
+ * How close in front of a boot the ball must be, along the attack, for a kick
+ * to land. The boot swings up to about 6 cm forward before it clears the ball;
+ * a shorter reach left balls sitting just out of it that the bot never kicked.
+ */
+export const REACH = { min: -0.004, max: 0.06 };
 /** How well a player must line up with the ball across the table. */
 const ALIGN = MAN.footWidth / 2 + BALL.radius * 0.6;
 

@@ -81,3 +81,14 @@ describe("Bot with a still ball", () => {
     expect(Math.max(...tail) - Math.min(...tail)).toBeLessThan(1e-6);
   });
 });
+
+describe("Bot reach", () => {
+  it("kicks a ball sitting 5 cm in front of a boot, the spot where it used to freeze", () => {
+    const bot = new Bot("blue", "hard", fixed(0));
+    const mid = RODS.find((r) => r.team === "blue" && r.role === "midfield")!;
+    const ball = { x: mid.x - 0.05, z: 0.06, vx: 0, vz: 0 };
+    let kicked = false;
+    for (let i = 0; i < 480; i++) kicked ||= bot.think(ball, slidesAt(0.06), DT).kick;
+    expect(kicked).toBe(true);
+  });
+});

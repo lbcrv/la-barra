@@ -30,8 +30,14 @@ export interface BallHandle {
 /** Where the ball waits between points: under the table, out of sight. */
 const PARKED = { x: 0, y: -0.5, z: 0 };
 
-/** Seconds a ball may sit still before it counts as dead and is served again. */
-const DEAD_AFTER = 4;
+/**
+ * A ball that hasn't got DEAD_DISTANCE away from where it was for DEAD_AFTER
+ * seconds is dead and served again, like a referee freeing it. Measuring
+ * distance rather than speed also catches a ball nudged back and forth
+ * between two players without ever getting anywhere.
+ */
+const DEAD_AFTER = 3.5;
+const DEAD_DISTANCE = 0.03;
 
 /** A jump in speed this big in one frame is a hit worth reacting to, in m/s. */
 const HIT_JUMP = 0.6;
@@ -49,6 +55,7 @@ export const Ball = forwardRef<
   const body = useRef<RapierRigidBody>(null);
   const lastSpeed = useRef(0);
   const still = useRef(0);
+  const anchor = useRef<{ x: number; z: number } | null>(null);
   const live = useRef(false);
 
   useImperativeHandle(ref, () => ({
@@ -61,6 +68,7 @@ export const Ball = forwardRef<
       // Rolled in across the table, drifting a little toward one end or the other.
       b.setLinvel({ x: (Math.random() - 0.5) * 0.5, y: 0, z: -SERVE.speed * (0.8 + Math.random() * 0.4) }, true);
       still.current = 0;
+      anchor.current = null;
       live.current = true;
     },
     place(at, velocity) {
@@ -71,6 +79,7 @@ export const Ball = forwardRef<
       b.setAngvel({ x: 0, y: 0, z: 0 }, true);
       b.setLinvel({ x: velocity.x, y: 0, z: velocity.z }, true);
       still.current = 0;
+      anchor.current = null;
       live.current = true;
     },
     position() {
@@ -136,7 +145,13 @@ export const Ball = forwardRef<
     lastSpeed.current = speed;
     if (onHit && jump > HIT_JUMP) onHit(jump, "kick", v.x);
     else if (onHit && jump < -HIT_JUMP) onHit(-jump, "wall", v.x);
-    still.current = speed < 0.02 ? still.current + dt : 0;
+    const p = b.translation();
+    if (!anchor.current || Math.hypot(p.x - anchor.current.x, p.z - anchor.current.z) > DEAD_DISTANCE) {
+      anchor.current = { x: p.x, z: p.z };
+      still.current = 0;
+    } else {
+      still.current += dt;
+    }
     // Stuck, or somehow off the table: either way the point is over.
     if (still.current > DEAD_AFTER || b.translation().y < -0.3) {
       live.current = false;
