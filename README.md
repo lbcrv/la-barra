@@ -2,7 +2,7 @@
 
 A cartoon table football game for the browser, set in a Honduran corner shop. Atlético La Esquina (red) against Real Pulpería (blue).
 
-**Play:** _link coming once it's deployed_
+**Play:** [la-barra-seven.vercel.app](https://la-barra-seven.vercel.app)
 
 ![The menu over the table](src/app/opengraph-image.png)
 
@@ -25,7 +25,7 @@ The rod nearest the ball kicks. Right-drag moves the camera, the wheel zooms.
 
 ## How online play works
 
-Peer to peer over WebRTC with PeerJS; its free public broker only introduces the two browsers. The host's browser runs the physics and plays red. The guest plays blue, sends its hand (pointer, keys, kick) and draws what the host sends back 30 times a second, blended 90 ms behind so late packets don't make the ball stutter. No server of our own, nothing to pay for.
+Peer to peer over WebRTC with PeerJS; its free public broker only introduces the two browsers, and when their networks won't allow a direct link (carrier-grade NAT, mobile data) the traffic goes through Cloudflare's free TURN relay, with short-lived credentials minted by `/api/ice`. The host's browser runs the physics and plays red. The guest plays blue, sends its hand (pointer, keys, kick) and draws what the host sends back 30 times a second, blended 90 ms behind so late packets don't make the ball stutter. No server of our own, nothing to pay for.
 
 ## Running it
 

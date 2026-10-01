@@ -38,11 +38,19 @@ async function iceConfig(): Promise<RTCConfiguration> {
   try {
     const res = await fetch("/api/ice", { cache: "no-store", signal: AbortSignal.timeout(5000) });
     if (!res.ok) return FALLBACK_ICE;
-    return (await res.json()) as RTCConfiguration;
+    const config = (await res.json()) as RTCConfiguration;
+    return FORCE_RELAY ? { ...config, iceTransportPolicy: "relay" } : config;
   } catch {
     return FALLBACK_ICE;
   }
 }
+
+/**
+ * `?relay` in the address forces every link through the TURN relay, the path
+ * players on restrictive networks take. Read once at load, before the lobby
+ * cleans the address bar. For testing that path from one machine.
+ */
+const FORCE_RELAY = typeof window !== "undefined" && new URLSearchParams(window.location.search).has("relay");
 
 /** PeerJS touches `window` on import, so it only loads in the browser, when needed. */
 async function newPeer(id?: string): Promise<Peer> {
