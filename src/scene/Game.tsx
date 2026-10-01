@@ -112,6 +112,8 @@ export function Game() {
   const lastCapJson = useRef("");
   const lastPowersKey = useRef("");
   const [ping, setPing] = useState<number | null>(null);
+  const [relayed, setRelayed] = useState<boolean | null>(null);
+  const lastInputSeq = useRef(0);
   const lastPong = useRef(0);
 
   /** Answers a ping, or takes in a pong; shared by host and guest. */
@@ -341,6 +343,9 @@ export function Game() {
       s.onMessage = (msg: ToHost) => {
         if (msg.t === "input") {
           const i: HandInput = msg.input;
+          // The fast channel keeps no order; an older hand arriving late is ignored.
+          if (i.seq <= lastInputSeq.current) return;
+          lastInputSeq.current = i.seq;
           inputs.current.blue = { handle: i.z, pointerZ: null, keyDir: i.dir, kick: i.kick };
         } else if (msg.t === "ping" || msg.t === "pong") onPing(msg);
         else if (msg.t === "bye") leaveOnline(strings[langRef.current].net.left);
@@ -454,13 +459,18 @@ export function Game() {
   useEffect(() => {
     if (role === "local") return;
     lastPong.current = performance.now();
+    lastInputSeq.current = 0;
+    let checks = 0;
     const id = window.setInterval(() => {
       session.current?.send({ t: "ping", at: performance.now() } as never);
+      // Which path the link took settles in the first seconds; look a few times.
+      if (checks++ < 5) void session.current?.relayed().then(setRelayed);
       if (performance.now() - lastPong.current > PING_LOST_MS) setPing(null);
     }, PING_EVERY_MS);
     return () => {
       window.clearInterval(id);
       setPing(null);
+      setRelayed(null);
     };
   }, [role]);
 
@@ -469,16 +479,17 @@ export function Game() {
     if (role !== "guest") return;
     let last = "";
     let lastAt = 0;
+    let inputSeq = 0;
     const id = window.setInterval(() => {
       const s = session.current as GuestSession | null;
       if (!s) return;
       const b = inputs.current.blue;
-      const input: HandInput = { z: b.handle === null ? null : q(b.handle), dir: b.keyDir, kick: b.kick };
+      const input: HandInput = { seq: 0, z: b.handle === null ? null : q(b.handle), dir: b.keyDir, kick: b.kick };
       const json = JSON.stringify(input);
       if (json === last && performance.now() - lastAt < 250) return;
       last = json;
       lastAt = performance.now();
-      s.send({ t: "input", input });
+      s.send({ t: "input", input: { ...input, seq: ++inputSeq } });
     }, 1000 / SNAPSHOT_HZ);
     return () => window.clearInterval(id);
   }, [role]);
@@ -639,6 +650,7 @@ export function Game() {
               anglesRef={angles}
               activeRef={activeRods}
               remoteRef={remoteRods}
+              localSide={role === "guest" ? "blue" : null}
             />
             {process.env.NODE_ENV !== "production" && <DevStats />}
             {role === "guest" && (
@@ -675,7 +687,7 @@ export function Game() {
         />
       )}
       {match && <Radio lang={lang} line={line} />}
-      {role !== "local" && <Ping ms={ping} lang={lang} />}
+      {role !== "local" && <Ping ms={ping} lang={lang} relayed={relayed} />}
       {match?.phase === "over" && (
         <Victory
           lang={lang}

@@ -1,5 +1,5 @@
 import type { DataConnection, Peer } from "peerjs";
-import { makeCode, peerId, type ToGuest, type ToHost } from "./protocol";
+import { isStateMessage, makeCode, peerId, type ToGuest, type ToHost } from "./protocol";
 
 export type Role = "host" | "guest";
 
@@ -14,6 +14,8 @@ export interface Session<Out, In> {
   code: string;
   send: (msg: Out) => void;
   close: () => void;
+  /** Whether the link runs through the TURN relay rather than directly; null until known. */
+  relayed: () => Promise<boolean | null>;
   /** Set by the caller. */
   onMessage: (msg: In) => void;
   onClose: (reason: SessionError) => void;
@@ -26,6 +28,15 @@ export type GuestSession = Session<ToHost, ToGuest>;
 const CODE_TRIES = 4;
 /** How long a guest waits to reach a room before giving up (ms). Relayed links can take a few seconds. */
 const JOIN_TIMEOUT = 20000;
+
+/**
+ * Two channels per match. "events" is reliable and in order: goals, kick-off,
+ * Don Chepe, leaving. "state" is unordered: snapshots, the guest's hand and
+ * pings, where only the newest matters and waiting for a lost packet to be
+ * resent would hold up every packet behind it.
+ */
+const EVENTS = "events";
+const STATE = "state";
 
 const FALLBACK_ICE: RTCConfiguration = { iceServers: [{ urls: ["stun:stun.cloudflare.com:3478", "stun:stun.l.google.com:19302"] }] };
 
@@ -58,34 +69,58 @@ async function newPeer(id?: string): Promise<Peer> {
   return id ? new Peer(id, { debug: 0, config }) : new Peer({ debug: 0, config });
 }
 
-function wire<Out, In>(peer: Peer, conn: DataConnection, role: Role, code: string): Session<Out, In> {
+/** Whether the connection's chosen candidate pair goes through a TURN relay. */
+async function usesRelay(conn: DataConnection): Promise<boolean | null> {
+  const pc = conn.peerConnection;
+  if (!pc) return null;
+  const stats = await pc.getStats();
+  let pairId: string | undefined;
+  stats.forEach((s) => {
+    if (s.type === "transport" && s.selectedCandidatePairId) pairId = s.selectedCandidatePairId;
+  });
+  let pair: RTCIceCandidatePairStats | undefined;
+  stats.forEach((s) => {
+    if (s.type === "candidate-pair" && (s.id === pairId || (!pairId && s.nominated && s.state === "succeeded"))) pair = s;
+  });
+  if (!pair) return null;
+  const local = stats.get(pair.localCandidateId);
+  const remote = stats.get(pair.remoteCandidateId);
+  return local?.candidateType === "relay" || remote?.candidateType === "relay";
+}
+
+function wire<Out extends { t: string }, In>(peer: Peer, events: DataConnection, state: DataConnection, role: Role, code: string): Session<Out, In> {
   let closed = false;
   const session: Session<Out, In> = {
     role,
     code,
     send: (msg) => {
+      const conn = isStateMessage(msg.t) ? state : events;
       if (conn.open) conn.send(msg);
     },
     close: () => {
       closed = true;
       try {
-        conn.close();
+        events.close();
+        state.close();
       } finally {
         peer.destroy();
       }
     },
+    relayed: () => usesRelay(events).catch(() => null),
     onMessage: () => {},
     onClose: () => {},
   };
-  conn.on("data", (data) => session.onMessage(data as In));
-  const end = (reason: SessionError) => {
+  for (const conn of [events, state]) {
+    conn.on("data", (data) => session.onMessage(data as In));
+    conn.on("close", () => end("closed"));
+    conn.on("error", () => end("network"));
+  }
+  function end(reason: SessionError) {
     if (closed) return;
     closed = true;
     session.onClose(reason);
     peer.destroy();
-  };
-  conn.on("close", () => end("closed"));
-  conn.on("error", () => end("network"));
+  }
   peer.on("disconnected", () => {
     // Losing the broker doesn't drop an open peer link; only try to get it back.
     if (!closed && !peer.destroyed) peer.reconnect();
@@ -96,7 +131,7 @@ function wire<Out, In>(peer: Peer, conn: DataConnection, role: Role, code: strin
 /**
  * Opens a room and waits for a guest. `onCode` fires as soon as the room
  * exists, so the code can be shown while waiting; the promise resolves when
- * the guest arrives. Call `cancel` to stop waiting.
+ * the guest's two channels are both open. Call `cancel` to stop waiting.
  */
 export function hostRoom(onCode: (code: string) => void): { ready: Promise<HostSession>; cancel: () => void } {
   let peer: Peer | null = null;
@@ -118,13 +153,17 @@ export function hostRoom(onCode: (code: string) => void): { ready: Promise<HostS
       if (outcome === "error") throw new Error("network");
       onCode(code);
       const p = peer;
-      const conn = await new Promise<DataConnection>((resolve) => {
+      const { events, state } = await new Promise<{ events: DataConnection; state: DataConnection }>((resolve) => {
+        const open: Record<string, DataConnection> = {};
         p.on("connection", (c) => {
-          c.on("open", () => resolve(c));
+          c.on("open", () => {
+            open[c.label] = c;
+            if (open[EVENTS] && open[STATE]) resolve({ events: open[EVENTS], state: open[STATE] });
+          });
         });
       });
       if (cancelled) throw new Error("cancelled");
-      return wire<ToGuest, ToHost>(p, conn, "host", code);
+      return wire<ToGuest, ToHost>(p, events, state, "host", code);
     }
     throw new Error("network");
   })();
@@ -156,13 +195,18 @@ export async function joinRoom(code: string): Promise<GuestSession> {
     });
     peer.on("open", () => {
       brokerReached = true;
-      const conn = peer.connect(peerId(code), { reliable: true, serialization: "json" });
-      conn.on("open", () => {
+      const events = peer.connect(peerId(code), { label: EVENTS, reliable: true, serialization: "json" });
+      const state = peer.connect(peerId(code), { label: STATE, reliable: false, serialization: "json" });
+      let opened = 0;
+      const onOpen = () => {
+        if (++opened < 2) return;
         window.clearTimeout(timer);
-        const session = wire<ToHost, ToGuest>(peer, conn, "guest", code);
+        const session = wire<ToHost, ToGuest>(peer, events, state, "guest", code);
         session.send({ t: "hello" });
         resolve(session);
-      });
+      };
+      events.on("open", onOpen);
+      state.on("open", onOpen);
     });
   });
 }

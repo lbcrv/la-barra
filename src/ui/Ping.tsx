@@ -6,10 +6,12 @@ import type { Lang } from "./strings";
 const COLOURS = ["#d7322a", "#d7322a", "#f2b632", "#2f8f46"];
 
 /** Signal bars and the round trip in ms, in a corner during online play. Null means no answer lately. */
-export function Ping({ ms, lang }: { ms: number | null; lang: Lang }) {
+export function Ping({ ms, lang, relayed = null }: { ms: number | null; lang: Lang; relayed?: boolean | null }) {
   const bars = pingBars(ms);
   const colour = COLOURS[bars];
   const label = ms === null ? (lang === "es" ? "sin señal" : "no signal") : `${Math.round(ms)} ms`;
+  // Through the TURN relay the trip is longer; worth knowing when the ping is high.
+  const via = relayed ? (lang === "es" ? "por relevo" : "relayed") : null;
   return (
     <div
       className="toon-panel pointer-events-none absolute right-3 bottom-3 flex items-center gap-2 px-2.5 py-1 sm:right-5 sm:bottom-5"
@@ -35,6 +37,7 @@ export function Ping({ ms, lang }: { ms: number | null; lang: Lang }) {
       <span className="text-sm font-semibold tabular-nums" style={{ color: bars <= 1 ? "#d7322a" : "#1b1410" }}>
         {label}
       </span>
+      {via && <span className="text-xs font-semibold text-ink/60">· {via}</span>}
     </div>
   );
 }

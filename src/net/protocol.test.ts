@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { CODE_LENGTH, makeCode, peerId, pingBars, readCode, RENDER_DELAY_MS, SnapshotBuffer, type Snapshot } from "./protocol";
+import { CODE_LENGTH, isStateMessage, makeCode, peerId, pingBars, readCode, RENDER_DELAY_MS, SnapshotBuffer, type Snapshot } from "./protocol";
 
 const snap = (t: number, x: number, slide = 0): Snapshot => ({
   t,
@@ -73,5 +73,12 @@ describe("pingBars", () => {
     expect(pingBars(120)).toBe(2);
     expect(pingBars(400)).toBe(1);
     expect(pingBars(null)).toBe(0);
+  });
+});
+
+describe("isStateMessage", () => {
+  it("sends positions, hands and pings on the fast channel, and events on the reliable one", () => {
+    for (const t of ["snap", "input", "ping", "pong"]) expect(isStateMessage(t)).toBe(true);
+    for (const t of ["hello", "start", "goal", "fx", "call", "bye"]) expect(isStateMessage(t)).toBe(false);
   });
 });

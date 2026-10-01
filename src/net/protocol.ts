@@ -38,8 +38,8 @@ export const peerId = (code: string) => ID_PREFIX + code;
 
 /** How often the host sends the table, per second. */
 export const SNAPSHOT_HZ = 30;
-/** How far behind the host the guest draws, so there are always two snapshots to blend. */
-export const RENDER_DELAY_MS = 90;
+/** How far behind the host the guest draws, so there are always two snapshots to blend (a little over two intervals). */
+export const RENDER_DELAY_MS = 70;
 
 /** Everything the guest needs to draw one instant of the table. */
 export interface Snapshot {
@@ -59,6 +59,8 @@ export interface Snapshot {
 
 /** What the guest's hand is doing. */
 export interface HandInput {
+  /** Counts up with every input sent; the unordered channel can deliver an older one late. */
+  seq: number;
   /** The handle, -1 to 1, or null while steering by keys. */
   z: number | null;
   dir: -1 | 0 | 1;
@@ -90,6 +92,10 @@ export function pingBars(ms: number | null): 0 | 1 | 2 | 3 {
   if (ms < 160) return 2;
   return 1;
 }
+
+/** Messages where only the newest matters: they go on the unordered channel. */
+const STATE_MESSAGES = new Set(["snap", "input", "ping", "pong"]);
+export const isStateMessage = (t: string) => STATE_MESSAGES.has(t);
 
 /** Rounds to 0.1 mm or 0.001 rad: plenty for drawing, and it keeps packets small. */
 export const q = (n: number) => Math.round(n * 10000) / 10000;

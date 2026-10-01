@@ -51,6 +51,7 @@ export const Rods = memo(function Rods({
   anglesRef,
   activeRef,
   remoteRef,
+  localSide = null,
 }: {
   inputsRef: RefObject<Inputs>;
   ball: RefObject<BallHandle | null>;
@@ -63,6 +64,12 @@ export const Rods = memo(function Rods({
   activeRef?: RefObject<Record<Side, number | null>>;
   /** Online guest: draw the rods where the host says they are, and simulate nothing. */
   remoteRef?: RefObject<RemoteRods | null>;
+  /**
+   * Online guest: its own side, whose rods it moves locally from its own hand
+   * right away instead of waiting for the host to echo them back a round trip
+   * later. The host stays in charge of where the ball goes.
+   */
+  localSide?: Side | null;
 }) {
   const bodies = useRef<(RapierRigidBody | null)[]>([]);
   const slides = slidesRef;
@@ -73,18 +80,48 @@ export const Rods = memo(function Rods({
   // Mirrors `current` for rendering the highlighted handle; updated only when it changes.
   const [active, setActive] = useState<Record<Side, number | null>>({ red: null, blue: null });
   const turn = useMemo(() => new Quaternion(), []);
+  const remoteActive = useRef("");
   // Each rod's upper bodies, for the cartoon squash and stretch.
   const uppers = useRef<(Group | null)[]>([]);
   // Stable ref callbacks, so a rod only re-renders when its own handle lights up.
   const bodyRefs = useMemo(() => RODS.map((_, i) => (b: RapierRigidBody | null) => void (bodies.current[i] = b)), []);
   const upperRefs = useMemo(() => RODS.map((_, i) => (g: Group | null) => void (uppers.current[i] = g)), []);
 
+  /** Guest prediction: the same handle, slide and kick steps the host runs, for one side only. */
+  function predictOwn(team: Side, dt: number) {
+    const input = inputsRef.current[team];
+    if (input.keyDir !== 0) {
+      if (input.handle === null) {
+        const mid = RODS.findIndex((r) => r.team === team && r.role === "midfield");
+        input.handle = clampHandle(slides.current[mid] / RODS[mid].travel);
+      }
+      input.handle = clampHandle(input.handle + input.keyDir * KEY_SWEEP * speedRef.current[team] * dt);
+    }
+    const at = ball.current?.position() ?? null;
+    if (at) current.current[team] = activeRod(team, at.x, current.current[team]);
+    RODS.forEach((rod, i) => {
+      if (rod.team !== team) return;
+      const target = input.handle !== null ? handleSlide(rod, input.handle) : motion.current[i].x;
+      motion.current[i] = stepSlide(motion.current[i], target, dt, ROD_SPEED * speedRef.current[team]);
+      slides.current[i] = motion.current[i].x;
+      kicks.current[i] = stepKick(kicks.current[i], input.kick && current.current[team] === i, dt);
+      const body = bodies.current[i];
+      if (!body) return;
+      body.setTranslation({ x: rod.x, y: ROD_Y, z: slides.current[i] }, true);
+      turn.setFromAxisAngle(Z_AXIS, attackDir(rod.team) * kicks.current[i].angle);
+      body.setRotation(turn, true);
+    });
+  }
+
   // Online guest: copy the host's rods straight onto the bodies. Physics is paused
   // there, and the renderer still draws each body wherever it is placed.
-  useFrame(() => {
+  useFrame((_, frameDt) => {
     const remote = remoteRef?.current;
     if (!remote) return;
+    const dt = Math.min(frameDt, 0.05);
+    if (localSide) predictOwn(localSide, dt);
     RODS.forEach((rod, i) => {
+      if (rod.team === localSide) return;
       const angle = remote.angles[i];
       // Rebuild just enough kick state for the squash and stretch below.
       kicks.current[i] = { phase: angle < -0.05 ? "windup" : angle > 0.3 ? "strike" : "rest", angle, held: angle < -0.05 ? 0.35 : 0, speed: 0 };
@@ -95,12 +132,15 @@ export const Rods = memo(function Rods({
       turn.setFromAxisAngle(Z_AXIS, attackDir(rod.team) * angle);
       body.setRotation(turn, true);
     });
-    const a = remote.active;
-    if (a.red !== current.current.red || a.blue !== current.current.blue) {
+    const a = localSide ? { ...remote.active, [localSide]: current.current[localSide] } : remote.active;
+    const key = `${a.red},${a.blue}`;
+    if (key !== remoteActive.current) {
+      remoteActive.current = key;
       current.current = { ...a };
       setActive({ ...a });
     }
   });
+
 
   // Visual only: upper bodies squash as the kick is drawn back and stretch as it
   // lands. Legs never stretch, so boots can't dip into the field; nothing scales
