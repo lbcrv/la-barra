@@ -1,7 +1,7 @@
 "use client";
 
 import { CoefficientCombineRule } from "@dimforge/rapier3d-compat";
-import { CuboidCollider, RigidBody, useBeforePhysicsStep, type RapierRigidBody } from "@react-three/rapier";
+import { CuboidCollider, CylinderCollider, RigidBody, useBeforePhysicsStep, type RapierRigidBody } from "@react-three/rapier";
 import { Outlines } from "@react-three/drei";
 import { useFrame } from "@react-three/fiber";
 import { memo, useEffect, useMemo, useRef, useState, type RefObject } from "react";
@@ -22,6 +22,9 @@ import { INK, OUTLINE_PX, toonGradient } from "./toon";
  * ball that a shot rolls back to the kicker once it lands.
  */
 const MAN_PHYSICS = { restitution: 0.45, friction: 0.02, frictionCombineRule: CoefficientCombineRule.Min };
+/** The steel rods: hard and slippery. */
+const ROD_RADIUS = 0.0075;
+const ROD_PHYSICS = { restitution: 0.5, friction: 0.02, frictionCombineRule: CoefficientCombineRule.Min };
 
 /** Half the cabinet's width, to where the rods come out the sides. */
 const CABINET_HALF = FIELD.width / 2 + WALL.thickness + CABINET.rim;
@@ -268,6 +271,8 @@ const Rod = memo(function Rod({
       position={[rod.x, ROD_Y, 0]}
       userData={{ name: `rod${rod.id}-${rod.team}-${rod.role}` }}
     >
+      {/* The steel rod across the field: a ball in the air bounces off it instead of passing through. */}
+      <CylinderCollider args={[FIELD.width / 2 + rod.travel, ROD_RADIUS]} rotation={[Math.PI / 2, 0, 0]} {...ROD_PHYSICS} />
       {manOffsets(rod).map((z) => (
         <group key={z}>
           <CuboidCollider args={[MAN.thick / 2, legLength / 2, MAN.width / 2]} position={[0, -legLength / 2, z]} {...MAN_PHYSICS} />
@@ -296,7 +301,7 @@ const Rod = memo(function Rod({
 
       {/* Steel rod through the cabinet. */}
       <mesh rotation-x={Math.PI / 2} position={[0, 0, centre]} castShadow>
-        <cylinderGeometry args={[0.0075, 0.0075, length, 12]} />
+        <cylinderGeometry args={[ROD_RADIUS, ROD_RADIUS, length, 12]} />
         {/* Thin enough that an outline adds a draw call and little else. */}
         <meshToonMaterial color="#8f969f" gradientMap={grad} />
       </mesh>

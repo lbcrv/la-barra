@@ -3,11 +3,11 @@ import { activeRod, BOOT_REACH, handleSlide, clampSlide, manOffsets, MAN, reacha
 import { FIELD } from "./table";
 
 describe("rod layout", () => {
-  it("has the standard eight rods and eleven players a side", () => {
+  it("has the standard eight rods and nine players a side", () => {
     expect(RODS).toHaveLength(8);
     for (const team of ["red", "blue"] as const) {
       const own = RODS.filter((r) => r.team === team);
-      expect(own.map((r) => r.men).reduce((a, b) => a + b)).toBe(11);
+      expect(own.map((r) => r.men).reduce((a, b) => a + b)).toBe(9);
     }
   });
 

@@ -150,6 +150,27 @@ export function fieldTexture() {
   return tex;
 }
 
+/** The size of one mesh square of a goal net, in metres. */
+export const NET_CELL = 0.012;
+
+/**
+ * One square of goal net: off-white cord on the edges of a transparent tile,
+ * repeated so the cord keeps its size on panels of any size. Drawn transparent
+ * rather than cut out with alphaTest: from across the table the cord is thinner
+ * than a pixel, and a cut-out net would vanish there instead of fading.
+ */
+export function netTexture() {
+  const S = 64;
+  const { c, g } = canvas(S, S);
+  g.strokeStyle = "#ece4d0";
+  g.lineWidth = 9;
+  g.strokeRect(0, 0, S, S);
+  // A knot where the cords cross.
+  g.fillStyle = "#ece4d0";
+  for (const x of [0, S]) for (const y of [0, S]) g.fillRect(x - 6, y - 6, 12, 12);
+  return finish(c);
+}
+
 /** Cement floor of the shop, stained and scuffed. */
 export function floorTexture() {
   const rand = rng(3);

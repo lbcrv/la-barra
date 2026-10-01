@@ -2,9 +2,10 @@
 
 import { Outlines, Trail } from "@react-three/drei";
 import { useFrame } from "@react-three/fiber";
-import { BallCollider, RigidBody, type RapierRigidBody } from "@react-three/rapier";
+import { BallCollider, RigidBody, useAfterPhysicsStep, type RapierRigidBody } from "@react-three/rapier";
 import { forwardRef, useEffect, useImperativeHandle, useRef } from "react";
 import type { BallState } from "@/game/bot";
+import { keepInside } from "@/game/contain";
 import { towardPlay } from "@/game/rods";
 import { BALL, FIELD, SERVE } from "@/game/table";
 import { INK, OUTLINE_PX, toonGradient } from "./toon";
@@ -171,6 +172,16 @@ export const Ball = forwardRef<
   useEffect(() => {
     body.current?.setEnabled(false);
   }, []);
+
+  // However hard it is hit, the ball stays on the table: checked every step.
+  useAfterPhysicsStep(() => {
+    const b = body.current;
+    if (!b || !live.current) return;
+    const fix = keepInside(b.translation(), b.linvel());
+    if (!fix) return;
+    b.setTranslation(fix.p, true);
+    b.setLinvel(fix.v, true);
+  });
 
   // A ball that stops where no player can reach it is dead; serve again.
   useFrame((_, dt) => {

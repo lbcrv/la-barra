@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { DURATION, effects, kickerOf, nextCap, SPAWN_AREA, take } from "./powerups";
+import { CAP_LANES, DURATION, effects, kickerOf, nextCap, SPAWN_AREA, take } from "./powerups";
+import { RODS } from "./rods";
 
 describe("effects", () => {
   it("is neutral with nothing in play", () => {
@@ -54,6 +55,17 @@ describe("caps", () => {
       const cap = nextCap(random);
       expect(Math.abs(cap.x)).toBeLessThanOrEqual(SPAWN_AREA.x);
       expect(Math.abs(cap.z)).toBeLessThanOrEqual(SPAWN_AREA.z);
+    }
+  });
+
+  it("land between rods, clear of every player's swing", () => {
+    expect(CAP_LANES.length).toBeGreaterThan(2);
+    let seed = 0.71;
+    const random = () => (seed = (seed * 9301 + 0.49297) % 1);
+    for (let i = 0; i < 50; i++) {
+      const cap = nextCap(random);
+      const nearestRod = Math.min(...RODS.map((r) => Math.abs(r.x - cap.x)));
+      expect(nearestRod).toBeGreaterThan(0.06);
     }
   });
 

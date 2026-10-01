@@ -18,6 +18,13 @@ export const CAP_STYLE: Record<Power, { cap: string; mark: string }> = {
 };
 
 const CAP_R = 0.016;
+/** How far the cap bobs up and down while it waits. */
+const BOB = 0.003;
+/**
+ * Height of the cap's centre: it stands on edge, so its rim (a little wider at
+ * the crimp) clears the field even at the bottom of its bob.
+ */
+const REST_Y = CAP_R * 1.05 + BOB + 0.001;
 /** The ball takes the cap when their centres are this close on the table. */
 const TOUCH = CAP_R + BALL.radius;
 
@@ -74,7 +81,7 @@ export function PowerField({
       const g = group.current;
       if (g) {
         clock.current += dt;
-        g.position.y = 0.012 + Math.sin(clock.current * 5) * 0.003;
+        g.position.y = REST_Y + Math.sin(clock.current * 5) * BOB;
         g.rotation.y = clock.current * 2.4;
       }
       return;
@@ -107,7 +114,7 @@ export function PowerField({
     if (g) {
       const age = now - c.born;
       const drop = Math.max(0, 1 - age / 0.4);
-      g.position.y = 0.012 + drop * drop * 0.25 + Math.sin(age * 5) * 0.003;
+      g.position.y = REST_Y + drop * drop * 0.25 + Math.sin(age * 5) * BOB;
       g.rotation.y = age * 2.4;
       // Blink during its last two seconds.
       g.visible = CAP_LIFETIME - age > 2 || Math.floor(age * 8) % 2 === 0;
@@ -117,7 +124,7 @@ export function PowerField({
   const shown = mirror !== undefined ? mirror : cap;
   if (!shown) return null;
   return (
-    <group ref={group} position={[shown.x, mirror !== undefined ? 0.012 : 0.25, shown.z]}>
+    <group ref={group} position={[shown.x, mirror !== undefined ? REST_Y : 0.25, shown.z]}>
       <CapModel power={shown.power} />
     </group>
   );

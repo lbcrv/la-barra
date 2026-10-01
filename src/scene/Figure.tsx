@@ -137,7 +137,22 @@ function playerParts(z: number, f: 1 | -1, jersey: string, shorts: string, look:
     lower.push([new CylinderGeometry(0.0052, 0.0052, 0.01, 8), jersey, [0, bootY + 0.011, lz]]);
     lower.push([new CapsuleGeometry(0.0055, 0.012, 3, 8), BOOT, [f * 0.004, bootY, lz], [0, 0, Math.PI / 2]]);
   }
-  return { upper, face, lower };
+
+  // Draw the figure at its size: the body shrinks toward the waist, so it still
+  // meets the shorts, and the legs only get thinner, since their length is set
+  // by the rod's height above the field.
+  const k = MAN.figure;
+  const waist = -0.02;
+  const shrink =
+    (keepHeight: boolean) =>
+    ([geo, color, [x, y, pz], rot, [sx, sy, sz] = [1, 1, 1]]: Part): Part => [
+      geo,
+      color,
+      [x * k, keepHeight ? y : waist + (y - waist) * k, z + (pz - z) * k],
+      rot,
+      [sx * k, keepHeight ? sy : sy * k, sz * k],
+    ];
+  return { upper: upper.map(shrink(false)), face: face.map(shrink(false)), lower: lower.map(shrink(true)) };
 }
 
 /** Builds a whole rod's players as three merged meshes. */

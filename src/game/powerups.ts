@@ -1,3 +1,4 @@
+import { RODS } from "./rods";
 import type { Side } from "./teams";
 
 /**
@@ -74,11 +75,19 @@ export function take(active: readonly ActivePower[], power: Power, side: Side, n
   return [...active.filter((a) => a.until > now && a.power !== power), { power, side, until: now + DURATION[power] }];
 }
 
+/**
+ * The open lanes where a cap can land: halfway between two neighbouring rods,
+ * inside the rally area, so it never drops through a player or sits inside one.
+ */
+export const CAP_LANES: number[] = RODS.slice(1)
+  .map((rod, i) => (rod.x + RODS[i].x) / 2)
+  .filter((x) => Math.abs(x) <= SPAWN_AREA.x);
+
 /** Picks the next cap's power and spot from a random source. */
 export function nextCap(random: () => number): { power: Power; x: number; z: number } {
   return {
     power: POWERS[Math.floor(random() * POWERS.length) % POWERS.length],
-    x: (random() * 2 - 1) * SPAWN_AREA.x,
+    x: CAP_LANES[Math.floor(random() * CAP_LANES.length) % CAP_LANES.length],
     z: (random() * 2 - 1) * SPAWN_AREA.z,
   };
 }

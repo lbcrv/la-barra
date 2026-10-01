@@ -8,14 +8,19 @@ export const ROD_Y = 0.078;
 export const MAN = {
   /** From the rod down to the bottom of the foot, which just clears the field. */
   reach: ROD_Y - 0.004,
-  /** Front-to-back thickness of the legs and foot (along x). */
+  /** Front-to-back thickness of the legs and foot (along x). Kept thick so a fast kick still meets the ball face on. */
   thick: 0.02,
-  /** Shoulder width (along z), and the foot, a little wider to hit the ball square. */
-  width: 0.026,
-  footWidth: 0.03,
+  /**
+   * Leg width (along z), and the foot, a little wider to hit the ball square.
+   * Slimmer than a real table's men, so a pass between two of them has room.
+   */
+  width: 0.021,
+  footWidth: 0.024,
   footHeight: 0.026,
   /** Head and torso above the rod. */
-  above: 0.045,
+  above: 0.036,
+  /** How big the painted figure is drawn against its original model, to match the slimmer legs. */
+  figure: 0.8,
 };
 
 export interface RodSpec {
@@ -31,8 +36,12 @@ export interface RodSpec {
   travel: number;
 }
 
-const SPACING = { goalie: 0, defence: 0.24, midfield: 0.12, attack: 0.185 } as const;
-const MEN = { goalie: 1, defence: 2, midfield: 5, attack: 3 } as const;
+/**
+ * Nine a side: the midfield has three men instead of a real table's five, so
+ * there is room to get the ball past it. They stand wider to cover the field.
+ */
+const SPACING = { goalie: 0, defence: 0.24, midfield: 0.2, attack: 0.185 } as const;
+const MEN = { goalie: 1, defence: 2, midfield: 3, attack: 3 } as const;
 
 /** Travel that lets the outer players just reach the side walls. */
 function travelFor(role: RodSpec["role"]): number {

@@ -639,7 +639,7 @@ export function Game() {
         <Suspense fallback={null}>
           {/* The online guest simulates nothing: it draws what the host sends. */}
           <Physics gravity={[0, -9.81, 0]} timeStep={1 / PHYSICS_HZ} paused={role === "guest"}>
-            <Table onGoal={onGoal} />
+            <Table onGoal={onGoal} goals={burst.n} goalOf={burst.conceded} />
             <Ball ref={ball} onDead={restartBall} onHit={onHit} hot={hot} />
             <BotDriver botsRef={bots} inputsRef={inputs} ballRef={ball} slidesRef={slides} />
             <Rods

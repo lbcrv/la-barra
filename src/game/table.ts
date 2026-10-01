@@ -9,8 +9,12 @@ export const FIELD = { length: 1.2, width: 0.68 };
 
 export const WALL = { height: 0.1, thickness: 0.035 };
 
-/** The mouth of each goal, cut into the short walls, and the pocket behind it (kept inside the cabinet rim). */
-export const GOAL = { width: 0.2, height: 0.075, depth: 0.06 };
+/**
+ * The mouth of each goal, cut into the short walls, and the pocket behind it
+ * (kept inside the cabinet rim, open on top under its net). The pocket's floor
+ * sits below the field so a ball that goes in stays in.
+ */
+export const GOAL = { width: 0.2, height: 0.075, depth: 0.06, floor: -0.03 };
 
 export const BALL = {
   radius: 0.0175,
@@ -25,10 +29,12 @@ export const BALL = {
 };
 
 /**
- * An invisible lid above the players' heads. A hard hit can pop the ball up;
- * on a real table it sometimes flies out, in the game that would only annoy.
+ * An invisible lid level with the top of the walls. A hard hit can pop the
+ * ball up; on a real table it sometimes flies out, in the game that would only
+ * annoy. Level with the painted walls, a ball in the air never even looks as
+ * if it is leaving, and with the steel rods in the way it can't fly over them.
  */
-export const LID_Y = 0.14;
+export const LID_Y = WALL.height;
 
 /** The wooden cabinet around the field, and the legs it stands on. */
 export const CABINET = { rim: 0.07, depth: 0.2, legHeight: 0.62, legSize: 0.07 };
