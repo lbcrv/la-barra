@@ -3,7 +3,11 @@ import { makeCode, peerId, type ToGuest, type ToHost } from "./protocol";
 
 export type Role = "host" | "guest";
 
-export type SessionError = "not-found" | "network" | "closed";
+/**
+ * not-found: no room with that code. unreachable: the room exists but the two
+ * browsers couldn't open a link. network: couldn't reach the broker at all.
+ */
+export type SessionError = "not-found" | "unreachable" | "network" | "closed";
 
 export interface Session<Out, In> {
   role: Role;
@@ -20,13 +24,30 @@ export type GuestSession = Session<ToHost, ToGuest>;
 
 /** Tries this many codes when one is already taken on the broker. */
 const CODE_TRIES = 4;
-/** How long a guest waits to reach a room before giving up (ms). */
-const JOIN_TIMEOUT = 12000;
+/** How long a guest waits to reach a room before giving up (ms). Relayed links can take a few seconds. */
+const JOIN_TIMEOUT = 20000;
+
+const FALLBACK_ICE: RTCConfiguration = { iceServers: [{ urls: ["stun:stun.cloudflare.com:3478", "stun:stun.l.google.com:19302"] }] };
+
+/**
+ * STUN and TURN servers from our /api/ice route. PeerJS's own default relays
+ * no longer exist, so without a relay of our own two players on different
+ * networks often couldn't connect at all.
+ */
+async function iceConfig(): Promise<RTCConfiguration> {
+  try {
+    const res = await fetch("/api/ice", { cache: "no-store", signal: AbortSignal.timeout(5000) });
+    if (!res.ok) return FALLBACK_ICE;
+    return (await res.json()) as RTCConfiguration;
+  } catch {
+    return FALLBACK_ICE;
+  }
+}
 
 /** PeerJS touches `window` on import, so it only loads in the browser, when needed. */
 async function newPeer(id?: string): Promise<Peer> {
-  const { Peer } = await import("peerjs");
-  return id ? new Peer(id, { debug: 0 }) : new Peer({ debug: 0 });
+  const [{ Peer }, config] = await Promise.all([import("peerjs"), iceConfig()]);
+  return id ? new Peer(id, { debug: 0, config }) : new Peer({ debug: 0, config });
 }
 
 function wire<Out, In>(peer: Peer, conn: DataConnection, role: Role, code: string): Session<Out, In> {
@@ -109,13 +130,16 @@ export function hostRoom(onCode: (code: string) => void): { ready: Promise<HostS
   };
 }
 
-/** Joins the room with this code. Rejects with "not-found" or "network". */
+/** Joins the room with this code. Rejects with "not-found", "unreachable" or "network". */
 export async function joinRoom(code: string): Promise<GuestSession> {
   const peer = await newPeer();
   return new Promise<GuestSession>((resolve, reject) => {
+    // The broker answers at once when a room doesn't exist, so running out of
+    // time means the room is there but no link could be opened to it.
+    let brokerReached = false;
     const timer = window.setTimeout(() => {
       peer.destroy();
-      reject(new Error("not-found"));
+      reject(new Error(brokerReached ? "unreachable" : "network"));
     }, JOIN_TIMEOUT);
     peer.on("error", (err) => {
       window.clearTimeout(timer);
@@ -123,6 +147,7 @@ export async function joinRoom(code: string): Promise<GuestSession> {
       reject(new Error((err as { type?: string }).type === "peer-unavailable" ? "not-found" : "network"));
     });
     peer.on("open", () => {
+      brokerReached = true;
       const conn = peer.connect(peerId(code), { reliable: true, serialization: "json" });
       conn.on("open", () => {
         window.clearTimeout(timer);

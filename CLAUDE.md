@@ -10,7 +10,7 @@ An arcade 3D table football (futbolito) game for the browser, set in a Honduran 
 - **Physics stays real under the cartoon.** The exaggeration is visual. The ball, rods and kicks keep the real-scale physics below.
 - **Real proportions.** Physics runs in metres with a real table's measurements (field 1.20 x 0.68 m, 35 mm ball). Constants live in `src/game/table.ts`; never hardcode a dimension in a component.
 - **Controls stay simple.** The rod nearest the ball is picked automatically. Mouse or finger slides it, click or tap kicks. Two players share a keyboard: W/S + D, and arrows up/down + left.
-- **Costs $0.** Static site on Vercel's free tier. No paid services and no server of our own: online play is peer to peer, with the host's browser running the physics.
+- **Costs $0.** Vercel's free tier. Online play is peer to peer, with the host's browser running the physics; the only server code is `/api/ice`, which mints short-lived TURN credentials from Cloudflare's free relay (`CF_TURN_KEY_ID`, `CF_TURN_API_TOKEN`, set in Vercel, never in git). PeerJS's own default relays no longer exist; don't rely on them.
 - **Spanish first.** Player-facing text is Spanish, with English as a toggle. README is English.
 - **Invented teams only.** No real club names, crests or brands.
 

@@ -57,7 +57,8 @@ export function Online({
     try {
       onJoin(await joinRoom(c));
     } catch (e) {
-      setStage({ at: "error", message: (e as Error).message === "not-found" ? t.notFound : t.network });
+      const reason = (e as Error).message;
+      setStage({ at: "error", message: reason === "not-found" ? t.notFound : reason === "unreachable" ? t.unreachable : t.network });
     }
   };
 
