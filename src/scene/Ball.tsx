@@ -39,7 +39,7 @@ const PARKED = { x: 0, y: -0.5, z: 0 };
  * distance rather than speed also catches a ball nudged back and forth
  * between two players without ever getting anywhere.
  */
-const DEAD_AFTER = 3.5;
+const DEAD_AFTER = 2.5;
 const DEAD_DISTANCE = 0.03;
 
 /**
@@ -51,6 +51,15 @@ const LEAN_BELOW = 0.25;
 const LEAN = 0.9;
 /** A ball stranded out of everyone's reach this long is dropped again in the middle (s). */
 const STRANDED_AFTER = 2;
+
+/**
+ * The ball never just sits: a ball nearly stopped for NUDGE_AFTER seconds,
+ * anywhere, gets rolled gently toward open play, like a table that isn't
+ * perfectly level. Waiting for a stuck ball felt like the game had frozen.
+ */
+const NUDGE_BELOW = 0.06;
+const NUDGE_AFTER = 1.2;
+const NUDGE_SPEED = 0.32;
 
 /** A jump in speed this big in one frame is a hit worth reacting to, in m/s. */
 const HIT_JUMP = 0.6;
@@ -70,6 +79,7 @@ export const Ball = forwardRef<
   const still = useRef(0);
   const anchor = useRef<{ x: number; z: number } | null>(null);
   const stranded = useRef(0);
+  const slow = useRef(0);
   const live = useRef(false);
 
   useImperativeHandle(ref, () => ({
@@ -189,6 +199,16 @@ export const Ball = forwardRef<
       stranded.current += dt;
     } else {
       stranded.current = 0;
+    }
+    // Nearly stopped for a while: roll it toward open play, away from the walls.
+    slow.current = onField && speed < NUDGE_BELOW ? slow.current + dt : 0;
+    if (slow.current > NUDGE_AFTER) {
+      slow.current = 0;
+      const toward = lean ?? { x: (Math.random() - 0.5) * 0.8, z: -Math.sign(p.z || 1) * (0.4 + Math.abs(p.z) * 2) };
+      const len = Math.hypot(toward.x, toward.z) || 1;
+      b.setLinvel({ x: v.x + (toward.x / len) * NUDGE_SPEED, y: v.y, z: v.z + (toward.z / len) * NUDGE_SPEED }, true);
+      // The roll this starts is the table's, not a kick.
+      lastSpeed.current = NUDGE_SPEED;
     }
     // Stuck, stranded, or somehow off the table: either way the point is over.
     if (still.current > DEAD_AFTER || stranded.current > STRANDED_AFTER || p.y < -0.3) {
