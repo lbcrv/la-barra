@@ -92,3 +92,15 @@ describe("Bot reach", () => {
     expect(kicked).toBe(true);
   });
 });
+
+describe("Bot with a ball behind its players", () => {
+  it("doesn't chase it across the table, which only shoved it sideways", () => {
+    const bot = new Bot("blue", "hard", fixed(0.5));
+    const mid = RODS.find((r) => r.team === "blue" && r.role === "midfield")!;
+    // Blue attacks toward -x, so +x is behind its boots.
+    const ball = { x: mid.x + 0.025, z: 0.2, vx: 0, vz: 0 };
+    let z = 0;
+    for (let i = 0; i < 480; i++) z = bot.think(ball, slidesAt(0), DT).pointerZ!;
+    expect(Math.abs(z)).toBeLessThan(0.02);
+  });
+});

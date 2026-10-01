@@ -172,3 +172,15 @@ describe("handleSlide", () => {
     }
   });
 });
+
+describe("a ball behind the players", () => {
+  it("counts as out of play, so the table rolls it back into reach", () => {
+    // Behind blue's midfield boots and far from every other rod's front.
+    const blue = RODS.find((r) => r.team === "blue" && r.role === "midfield")!;
+    const red = RODS.find((r) => r.team === "red" && r.role === "attack")!;
+    const x = blue.x + 0.03;
+    expect(red.x - BOOT_REACH.forward).toBeGreaterThan(x);
+    expect(reachable(x, 0)).toBe(false);
+    expect(towardPlay(x, 0)).not.toBeNull();
+  });
+});

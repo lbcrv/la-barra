@@ -162,14 +162,17 @@ export function activeRod(team: Side, ballX: number, current: number | null, hys
 }
 
 /**
- * How far from its rod a boot can meet the ball, along the table: forward on
- * the swing, and back on the draw. Past these, that rod can't touch it.
+ * Where a boot can play the ball, along the table from its rod: up to 6 cm in
+ * front on the swing, and just a hair behind the boot's face. A ball further
+ * behind the players can only be shoved sideways, never kicked, so it counts
+ * as out of play: counting it as reachable left balls sitting behind a rod
+ * for good, with no lean and no new ball.
  */
-export const BOOT_REACH = { forward: 0.06, back: 0.045 };
+export const BOOT_REACH = { forward: 0.06, back: 0.004 };
 /** A player within this distance across the table can take the ball. */
 const TOUCH_ACROSS = 0.02;
 
-/** Whether any player of either team could touch a ball at (x, z) with their rod in the right place. */
+/** Whether any player of either team could kick a ball at (x, z) with their rod in the right place. */
 export function reachable(x: number, z: number): boolean {
   return RODS.some((rod) => {
     const along = (x - rod.x) * attackDir(rod.team);

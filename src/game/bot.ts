@@ -39,6 +39,9 @@ export function predictZ(z: number, vz: number, t: number): number {
   return folded - Z_LIMIT;
 }
 
+/** How far behind a rod's boots a ball still sits against the players' bodies (m). */
+const BEHIND_ZONE = 0.05;
+
 /** The aim error is rolled again once the ball has moved this far (m). */
 const REROLL_AFTER = 0.05;
 /** Below this speed (m/s) a ball near the bot's rod counts as under control. */
@@ -113,6 +116,11 @@ export class Bot {
    */
   private aim(ball: BallState): number {
     const dir = attackDir(this.team);
+    // A ball just behind our boots can't be kicked; chasing it only shoves it
+    // sideways with a player's body, over and over. Keep the hand where it is.
+    const rod = RODS[activeRod(this.team, ball.x, this.active)];
+    const behind = (ball.x - rod.x) * dir;
+    if (behind < REACH.min && behind > -BEHIND_ZONE) return this.target;
     const own = RODS.filter((r) => r.team === this.team);
     // The first of our rods the ball will meet, travelling the way it goes.
     const heading = Math.sign(ball.vx) || -dir;
