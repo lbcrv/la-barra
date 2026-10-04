@@ -18,13 +18,18 @@ export interface TeamInput {
   keyDir: -1 | 0 | 1;
   /** Kick button held. */
   kick: boolean;
+  /**
+   * Pass presses so far. A count rather than a held flag: a pass is one tap,
+   * and a count can't be lost between two physics steps or two network packets.
+   */
+  passes: number;
 }
 
 export type Inputs = Record<Side, TeamInput>;
 
 export const idleInputs = (): Inputs => ({
-  red: { handle: null, pointerZ: null, keyDir: 0, kick: false },
-  blue: { handle: null, pointerZ: null, keyDir: 0, kick: false },
+  red: { handle: null, pointerZ: null, keyDir: 0, kick: false, passes: 0 },
+  blue: { handle: null, pointerZ: null, keyDir: 0, kick: false, passes: 0 },
 });
 
 /** Top speed of a rod sliding in its bearings, in m/s. */

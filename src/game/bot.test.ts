@@ -93,6 +93,29 @@ describe("Bot reach", () => {
   });
 });
 
+describe("Bot passing", () => {
+  it("sometimes passes from its midfield instead of shooting", () => {
+    // A random source near 1 takes the chance and then picks the pass.
+    const bot = new Bot("blue", "hard", fixed(0.75));
+    const mid = RODS.find((r) => r.team === "blue" && r.role === "midfield")!;
+    const ball = { x: mid.x - 0.03, z: 0.06, vx: 0, vz: 0 };
+    let kicked = false;
+    for (let i = 0; i < 480; i++) kicked ||= bot.think(ball, slidesAt(0.06), DT).kick;
+    expect(bot.input.passes).toBeGreaterThan(0);
+    expect(kicked).toBe(false);
+  });
+
+  it("never passes from its forwards: there it shoots", () => {
+    const bot = new Bot("blue", "hard", fixed(0.75));
+    const att = RODS.find((r) => r.team === "blue" && r.role === "attack")!;
+    const ball = { x: att.x - 0.03, z: 0, vx: 0, vz: 0 };
+    let kicked = false;
+    for (let i = 0; i < 480; i++) kicked ||= bot.think(ball, slidesAt(0), DT).kick;
+    expect(bot.input.passes).toBe(0);
+    expect(kicked).toBe(true);
+  });
+});
+
 describe("Bot with a ball behind its players", () => {
   it("doesn't chase it across the table, which only shoved it sideways", () => {
     const bot = new Bot("blue", "hard", fixed(0.5));

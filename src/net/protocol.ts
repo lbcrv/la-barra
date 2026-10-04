@@ -65,6 +65,8 @@ export interface HandInput {
   z: number | null;
   dir: -1 | 0 | 1;
   kick: boolean;
+  /** Pass presses so far; the host passes once for every one it hasn't seen. */
+  passes: number;
 }
 
 /** Either side asks "are you there?" every second; the answer's delay is the ping. */

@@ -15,13 +15,14 @@ export interface BallState {
 /** How each level plays. Slower hands, more error and softer shots make it beatable. */
 export const LEVELS: Record<
   Level,
-  { reaction: number; error: number; handSpeed: number; hold: [number, number]; kickChance: number }
+  { reaction: number; error: number; handSpeed: number; hold: [number, number]; kickChance: number; passChance: number }
 > = {
   // Seconds between looks at the ball, aim error in metres, how fast it moves its hand,
-  // how long it charges a shot (min, max seconds), and how often it takes a chance it sees.
-  easy: { reaction: 0.28, error: 0.035, handSpeed: 0.7, hold: [0.05, 0.15], kickChance: 0.55 },
-  normal: { reaction: 0.16, error: 0.018, handSpeed: 1.3, hold: [0.1, 0.3], kickChance: 0.8 },
-  hard: { reaction: 0.08, error: 0.007, handSpeed: 2.2, hold: [0.25, 0.45], kickChance: 0.97 },
+  // how long it charges a shot (min, max seconds), how often it takes a chance it sees,
+  // and how often it passes forward instead of shooting from behind its forwards.
+  easy: { reaction: 0.28, error: 0.035, handSpeed: 0.7, hold: [0.05, 0.15], kickChance: 0.55, passChance: 0.15 },
+  normal: { reaction: 0.16, error: 0.018, handSpeed: 1.3, hold: [0.1, 0.3], kickChance: 0.8, passChance: 0.3 },
+  hard: { reaction: 0.08, error: 0.007, handSpeed: 2.2, hold: [0.25, 0.45], kickChance: 0.97, passChance: 0.4 },
 };
 
 /** The ball stays this far from the side walls. */
@@ -74,7 +75,7 @@ export class Bot {
   // simply a bit off; re-rolling it at every look made the rod tremble.
   private error = 0;
   private errorAt: { x: number; z: number } | null = null;
-  readonly input: TeamInput = { handle: null, pointerZ: 0, keyDir: 0, kick: false };
+  readonly input: TeamInput = { handle: null, pointerZ: 0, keyDir: 0, kick: false, passes: 0 };
 
   constructor(
     readonly team: Side,
@@ -154,6 +155,12 @@ export class Bot {
     if (ahead < REACH.min || ahead > REACH.max || !lined) return false;
     // Not every chance is taken, and the decision is made once per look.
     if (this.since !== 0 || this.random() > cfg.kickChance) return false;
+
+    // Behind its forwards, it sometimes passes up the table instead of shooting.
+    if (rod.role !== "attack" && this.random() > 1 - cfg.passChance) {
+      this.input.passes++;
+      return false;
+    }
 
     const [lo, hi] = cfg.hold;
     this.holdFor = lo + this.random() * (hi - lo);

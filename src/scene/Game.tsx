@@ -39,17 +39,26 @@ const NEXT_BALL_MS = 1600;
 const FIRST_BALL_MS = 900;
 
 /**
- * Keys for two players sharing a keyboard. Red: W/S slide, D kicks.
- * Blue: arrow up/down slide, arrow left kicks. Up slides toward the far side.
+ * Keys for two players sharing a keyboard. Red: W/S slide, D kicks, A passes.
+ * Blue: arrow up/down slide, arrow left kicks, arrow right passes. Up slides
+ * toward the far side.
  */
-const KEYS: Record<string, { team: Side; dir?: -1 | 1; kick?: true }> = {
+const KEYS: Record<string, { team: Side; dir?: -1 | 1; kick?: true; pass?: true }> = {
   KeyW: { team: "red", dir: -1 },
   KeyS: { team: "red", dir: 1 },
   KeyD: { team: "red", kick: true },
+  KeyA: { team: "red", pass: true },
   ArrowUp: { team: "blue", dir: -1 },
   ArrowDown: { team: "blue", dir: 1 },
   ArrowLeft: { team: "blue", kick: true },
+  ArrowRight: { team: "blue", pass: true },
 };
+
+/**
+ * A pass by pointer is a quick tap with the right button, or with two fingers.
+ * Held longer or dragged further, the same gesture turns the camera instead.
+ */
+const PASS_TAP = { ms: 300, px: 8 };
 
 /** How long Don Chepe's line stays up, and the least time between two "big shot" calls. */
 const LINE_MS = 3200;
@@ -114,7 +123,11 @@ export function Game() {
   const [ping, setPing] = useState<number | null>(null);
   const [relayed, setRelayed] = useState<boolean | null>(null);
   const lastInputSeq = useRef(0);
+  const guestPasses = useRef(0);
   const lastPong = useRef(0);
+  // A right-button or two-finger tap that may turn out to be a pass, and the fingers down.
+  const passTap = useRef<{ at: number; x: number; y: number } | null>(null);
+  const touches = useRef(new Set<number>());
 
   /** Answers a ping, or takes in a pong; shared by host and guest. */
   const onPing = useCallback((msg: { t: "ping" | "pong"; at: number }) => {
@@ -346,7 +359,11 @@ export function Game() {
           // The fast channel keeps no order; an older hand arriving late is ignored.
           if (i.seq <= lastInputSeq.current) return;
           lastInputSeq.current = i.seq;
-          inputs.current.blue = { handle: i.z, pointerZ: null, keyDir: i.dir, kick: i.kick };
+          // Count each of the guest's passes once, whatever this side's count is at.
+          const newPasses = Math.max(0, i.passes - guestPasses.current);
+          guestPasses.current = Math.max(guestPasses.current, i.passes);
+          const blue = inputs.current.blue;
+          inputs.current.blue = { handle: i.z, pointerZ: null, keyDir: i.dir, kick: i.kick, passes: blue.passes + newPasses };
         } else if (msg.t === "ping" || msg.t === "pong") onPing(msg);
         else if (msg.t === "bye") leaveOnline(strings[langRef.current].net.left);
       };
@@ -460,6 +477,7 @@ export function Game() {
     if (role === "local") return;
     lastPong.current = performance.now();
     lastInputSeq.current = 0;
+    guestPasses.current = 0;
     let checks = 0;
     const id = window.setInterval(() => {
       session.current?.send({ t: "ping", at: performance.now() } as never);
@@ -484,7 +502,7 @@ export function Game() {
       const s = session.current as GuestSession | null;
       if (!s) return;
       const b = inputs.current.blue;
-      const input: HandInput = { seq: 0, z: b.handle === null ? null : q(b.handle), dir: b.keyDir, kick: b.kick };
+      const input: HandInput = { seq: 0, z: b.handle === null ? null : q(b.handle), dir: b.keyDir, kick: b.kick, passes: b.passes };
       const json = JSON.stringify(input);
       if (json === last && performance.now() - lastAt < 250) return;
       last = json;
@@ -523,6 +541,8 @@ export function Game() {
         inputs.current.red.handle = null;
         inputs.current.red.pointerZ = z;
       },
+      pass: () => void inputs.current.red.passes++,
+      inputs: () => JSON.parse(JSON.stringify(inputs.current)),
       play,
       match: () => matchRef.current,
     };
@@ -559,6 +579,8 @@ export function Game() {
       e.preventDefault();
       const input = inputs.current[key.team];
       if (key.kick) input.kick = true;
+      // One pass per press: a held key's repeats don't count.
+      if (key.pass && !e.repeat) input.passes++;
       if (key.dir) {
         held[key.team].add(key.dir);
         input.keyDir = slideDir(key.team);
@@ -578,17 +600,39 @@ export function Game() {
       }
     };
     const onPointerUp = (e: PointerEvent) => {
-      if (e.button !== 0) return;
+      touches.current.delete(e.pointerId);
       const side: Side = roleRef.current === "guest" ? "blue" : "red";
-      if (roleRef.current !== "local" || human("red")) inputs.current[side].kick = false;
+      const mine = roleRef.current !== "local" || human("red");
+      // A quick right-button or two-finger tap is a pass. Counted before the
+      // kick lets go, so a shot the first finger started charging becomes the pass.
+      const tap = passTap.current;
+      if (tap) {
+        passTap.current = null;
+        if (mine && performance.now() - tap.at < PASS_TAP.ms) inputs.current[side].passes++;
+      }
+      if (e.button !== 0) return;
+      if (mine) inputs.current[side].kick = false;
+    };
+    // Dragged too far, the tap was the camera turning.
+    const onPointerMove = (e: PointerEvent) => {
+      const tap = passTap.current;
+      if (tap && Math.hypot(e.clientX - tap.x, e.clientY - tap.y) > PASS_TAP.px) passTap.current = null;
+    };
+    const onPointerCancel = (e: PointerEvent) => {
+      touches.current.delete(e.pointerId);
+      passTap.current = null;
     };
     window.addEventListener("keydown", onDown);
     window.addEventListener("keyup", onUp);
     window.addEventListener("pointerup", onPointerUp);
+    window.addEventListener("pointermove", onPointerMove);
+    window.addEventListener("pointercancel", onPointerCancel);
     return () => {
       window.removeEventListener("keydown", onDown);
       window.removeEventListener("keyup", onUp);
       window.removeEventListener("pointerup", onPointerUp);
+      window.removeEventListener("pointermove", onPointerMove);
+      window.removeEventListener("pointercancel", onPointerCancel);
     };
   }, [serve]);
 
@@ -604,12 +648,26 @@ export function Game() {
         camera={{ fov: 38, near: 0.05, far: 20 }}
         // Sharp enough on high-density screens without rendering four times the pixels.
         dpr={[1, 1.5]}
-        // Left button kicks; the right one belongs to the camera.
+        // Left button kicks; a quick tap of the right one passes, and dragging it turns the camera.
         onPointerMove={() => {
           if (mousePlays) aiming.current = true;
         }}
         onPointerDown={(e) => {
-          if (e.button !== 0 || !mousePlays) return;
+          if (!mousePlays) return;
+          const tap = { at: performance.now(), x: e.clientX, y: e.clientY };
+          if (e.pointerType === "touch") {
+            touches.current.add(e.pointerId);
+            // A second finger: a pass if both come off quickly, the camera if they move.
+            if (touches.current.size === 2) {
+              passTap.current = tap;
+              return;
+            }
+          }
+          if (e.button === 2) {
+            passTap.current = tap;
+            return;
+          }
+          if (e.button !== 0) return;
           aiming.current = true;
           inputs.current[mouseSide].kick = true;
         }}

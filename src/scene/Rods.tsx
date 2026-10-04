@@ -1,7 +1,7 @@
 "use client";
 
 import { CoefficientCombineRule } from "@dimforge/rapier3d-compat";
-import { CuboidCollider, CylinderCollider, RigidBody, useBeforePhysicsStep, type RapierRigidBody } from "@react-three/rapier";
+import { CuboidCollider, CylinderCollider, RigidBody, useAfterPhysicsStep, useBeforePhysicsStep, type RapierRigidBody } from "@react-three/rapier";
 import { Outlines } from "@react-three/drei";
 import { useFrame } from "@react-three/fiber";
 import { memo, useEffect, useMemo, useRef, useState, type RefObject } from "react";
@@ -9,6 +9,7 @@ import { Color, CylinderGeometry, Float32BufferAttribute, Matrix4, Quaternion, V
 import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
 import { clampHandle, KEY_SWEEP, ROD_SPEED, type Inputs } from "@/game/input";
 import { KICK, restingKick, stepKick } from "@/game/kick";
+import { aheadOf, atBoot, PASS, planPass, receiverOf, type PassPlan } from "@/game/pass";
 import { activeRod, attackDir, handleSlide, MAN, manOffsets, ROD_Y, RODS, slideToward, stepSlide, type RodSpec, type SlideState } from "@/game/rods";
 import { CABINET, FIELD, WALL } from "@/game/table";
 import { TEAMS, type Side } from "@/game/teams";
@@ -33,6 +34,19 @@ const HANDLE_SIDE = 0.2;
 const STUB_SIDE = 0.03;
 
 const Z_AXIS = new Vector3(0, 0, 1);
+
+/** Steps a value toward a target by at most `step`. */
+const toward = (from: number, to: number, step: number) => from + Math.max(-step, Math.min(step, to - from));
+
+/** A rod drawn back past any windup is lifted to let a pass roll under it. */
+const isLifted = (angle: number) => angle < KICK.windup - 0.1;
+
+/** A pass on its way: where it is going, who played it, and for how long it has rolled. */
+interface Flight {
+  plan: PassPlan;
+  passer: number;
+  t: number;
+}
 
 /** The rods as the online host last described them. */
 export interface RemoteRods {
@@ -89,6 +103,38 @@ export const Rods = memo(function Rods({
   // Stable ref callbacks, so a rod only re-renders when its own handle lights up.
   const bodyRefs = useMemo(() => RODS.map((_, i) => (b: RapierRigidBody | null) => void (bodies.current[i] = b)), []);
   const upperRefs = useMemo(() => RODS.map((_, i) => (g: Group | null) => void (uppers.current[i] = g)), []);
+  // Passing: the presses each side has had answered, the rod tapping a pass
+  // right now (if any), each rod's lift as it lets a pass roll under it, and
+  // the pass on its way.
+  const passesSeen = useRef<Record<Side, number>>({ red: 0, blue: 0 });
+  const passing = useRef<Record<Side, number | null>>({ red: null, blue: null });
+  const lift = useRef(RODS.map(() => 0));
+  const flight = useRef<Flight | null>(null);
+
+  /** Starts a pass from `team`'s active rod, if the ball is there to be passed. */
+  function startPass(team: Side) {
+    const i = current.current[team];
+    const at = ball.current?.position();
+    if (i === null || !at) return;
+    const rod = RODS[i];
+    const k = kicks.current[i];
+    // Mid-swing, or still high on the way back: too late to tap again.
+    if (k.phase === "strike" || (k.phase === "recover" && k.angle > KICK.rearmAt)) return;
+    // Let go of the kick, so a shot being charged turns into the pass instead.
+    inputsRef.current[team].kick = false;
+    if (receiverOf(rod)) {
+      // A soft tap; the ball leaves as the boot comes through.
+      kicks.current[i] = { phase: "strike", angle: k.angle, held: 0, speed: PASS.swing };
+      passing.current[team] = i;
+      return;
+    }
+    // On the forwards: roll it along the rod, no swing needed.
+    if (!atBoot(rod, slides.current[i], at)) return;
+    const plan = planPass(rod, at, slides.current);
+    if (!plan) return;
+    ball.current?.roll(plan.vx, plan.vz);
+    flight.current = { plan, passer: i, t: 0 };
+  }
 
   /** Guest prediction: the same handle, slide and kick steps the host runs, for one side only. */
   function predictOwn(team: Side, dt: number) {
@@ -108,10 +154,13 @@ export const Rods = memo(function Rods({
       motion.current[i] = stepSlide(motion.current[i], target, dt, ROD_SPEED * speedRef.current[team]);
       slides.current[i] = motion.current[i].x;
       kicks.current[i] = stepKick(kicks.current[i], input.kick && current.current[team] === i, dt);
+      // Passes run on the host: when it lifts one of our rods to let a pass under, show that.
+      const hostAngle = remoteRef?.current?.angles[i] ?? 0;
+      const angle = isLifted(hostAngle) ? hostAngle : kicks.current[i].angle;
       const body = bodies.current[i];
       if (!body) return;
       body.setTranslation({ x: rod.x, y: ROD_Y, z: slides.current[i] }, true);
-      turn.setFromAxisAngle(Z_AXIS, attackDir(rod.team) * kicks.current[i].angle);
+      turn.setFromAxisAngle(Z_AXIS, attackDir(rod.team) * angle);
       body.setRotation(turn, true);
     });
   }
@@ -126,8 +175,10 @@ export const Rods = memo(function Rods({
     RODS.forEach((rod, i) => {
       if (rod.team === localSide) return;
       const angle = remote.angles[i];
-      // Rebuild just enough kick state for the squash and stretch below.
-      kicks.current[i] = { phase: angle < -0.05 ? "windup" : angle > 0.3 ? "strike" : "rest", angle, held: angle < -0.05 ? 0.35 : 0, speed: 0 };
+      // Rebuild just enough kick state for the squash and stretch below. A rod
+      // lifted for a pass is just standing aside, not charging a shot.
+      const windup = angle < -0.05 && !isLifted(angle);
+      kicks.current[i] = { phase: windup ? "windup" : angle > 0.3 ? "strike" : "rest", angle, held: windup ? 0.35 : 0, speed: 0 };
       slides.current[i] = remote.slides[i];
       const body = bodies.current[i];
       if (!body) return;
@@ -167,6 +218,8 @@ export const Rods = memo(function Rods({
       angles: kicks.current.map((k) => +k.angle.toFixed(2)),
       phases: kicks.current.map((k) => k.phase),
       active: { ...current.current },
+      flight: flight.current && { ...flight.current },
+      lift: lift.current.map((v) => +v.toFixed(2)),
       bodies: bodies.current.map((b) => (b ? { t: b.translation(), r: b.rotation() } : null)),
     });
     (window as unknown as { __kick?: unknown }).__kick = KICK;
@@ -201,6 +254,19 @@ export const Rods = memo(function Rods({
       input.pointerZ = null;
     }
 
+    // A new pass press: answer it once. The count starts over with each match.
+    for (const team of ["red", "blue"] as const) {
+      const pressed = inputsRef.current[team].passes;
+      if (pressed < passesSeen.current[team]) passesSeen.current[team] = pressed;
+      if (pressed === passesSeen.current[team]) continue;
+      passesSeen.current[team] = pressed;
+      startPass(team);
+    }
+
+    // The rod a pass is heading for lifts its feet until the ball is in front of them.
+    const f = flight.current;
+    const receiving = f && !f.plan.lateral && at && aheadOf(RODS[f.plan.receiver], at.x) < PASS.trapAhead ? f.plan.receiver : null;
+
     RODS.forEach((rod, i) => {
       const input = inputsRef.current[rod.team];
       const boost = speedRef.current[rod.team];
@@ -215,15 +281,71 @@ export const Rods = memo(function Rods({
       const kicking = input.kick && current.current[rod.team] === i;
       kicks.current[i] = stepKick(kicks.current[i], kicking, dt);
 
+      // A passing tap lets the ball go as the boot comes through it.
+      if (passing.current[rod.team] === i && kicks.current[i].angle >= PASS.release) {
+        passing.current[rod.team] = null;
+        const now = ball.current?.position();
+        const plan = now && atBoot(rod, slides.current[i], now) ? planPass(rod, now, slides.current) : null;
+        if (plan) {
+          ball.current?.roll(plan.vx, plan.vz);
+          flight.current = { plan, passer: i, t: 0 };
+        }
+      }
+      if (passing.current[rod.team] === i && kicks.current[i].phase !== "strike") passing.current[rod.team] = null;
+
+      lift.current[i] = toward(lift.current[i], receiving === i ? PASS.lift : 0, PASS.liftSpeed * dt);
+      const angle = kicks.current[i].angle + lift.current[i];
+
       const body = bodies.current[i];
       if (!body) return;
       body.setNextKinematicTranslation({ x: rod.x, y: ROD_Y, z: slides.current[i] });
       // Turning about +z swings the foot toward +x, which is red's attack.
-      turn.setFromAxisAngle(Z_AXIS, attackDir(rod.team) * kicks.current[i].angle);
+      turn.setFromAxisAngle(Z_AXIS, attackDir(rod.team) * angle);
       body.setNextKinematicRotation(turn);
-      if (anglesRef) anglesRef.current[i] = kicks.current[i].angle;
+      if (anglesRef) anglesRef.current[i] = angle;
     });
     if (activeRef) activeRef.current = current.current;
+  });
+
+  // After each step, see the pass through: keep it on its line while the tap
+  // is still touching it, trap it in front of the receiver, or give up on it.
+  useAfterPhysicsStep((world) => {
+    const f = flight.current;
+    if (!f || remoteRef?.current) return;
+    f.t += world.timestep;
+    const b = ball.current?.state();
+    if (!b || f.t > PASS.timeout) {
+      flight.current = null;
+      return;
+    }
+    const { plan } = f;
+    const passer = RODS[f.passer];
+    if (kicks.current[f.passer].phase === "strike" && atBoot(passer, slides.current[f.passer], b)) {
+      ball.current?.roll(plan.vx, plan.vz);
+      return;
+    }
+    const to = RODS[plan.receiver];
+    if (plan.lateral) {
+      // Along the rod: stop at the foot of the forward it was meant for.
+      const z = slides.current[to.id] + manOffsets(to)[plan.man];
+      if ((z - b.z) * Math.sign(plan.vz) <= 0.004) {
+        ball.current?.roll(0, 0, true);
+        flight.current = null;
+      } else if (Math.abs(aheadOf(to, b.x)) > 0.1) {
+        flight.current = null;
+      }
+      return;
+    }
+    const ahead = aheadOf(to, b.x);
+    const forward = b.vx * attackDir(to.team);
+    if (ahead >= PASS.trapAhead && ahead <= PASS.trapAhead + PASS.trapWindow) {
+      // Through under the lifted feet: the receiver traps it in front of its boots.
+      ball.current?.roll(0, 0, true);
+      flight.current = null;
+    } else if (ahead > PASS.trapAhead + PASS.trapWindow || forward < 0.05) {
+      // Ran past, or stopped or turned back by someone on the way.
+      flight.current = null;
+    }
   });
 
   return (

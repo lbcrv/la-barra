@@ -25,6 +25,11 @@ export interface BallHandle {
   state: () => BallState | null;
   /** Multiplies the ball's speed, for a power-up kick. */
   boost: (factor: number) => void;
+  /**
+   * Sets the ball rolling across the table at (vx, vz), for a pass. `quiet`
+   * keeps the change from counting as a hit, as when a receiver traps it.
+   */
+  roll: (vx: number, vz: number, quiet?: boolean) => void;
   /** Scales how quickly the ball slows down: below 1 is ice. */
   setDamping: (factor: number) => void;
   /** Online guest: put the ball where the host says it is, or off the table for null. */
@@ -127,6 +132,13 @@ export const Ball = forwardRef<
       b.setLinvel({ x: v.x * factor, y: v.y, z: v.z * factor }, true);
       // The jump this makes is the power-up's, not a new kick.
       lastSpeed.current = Math.hypot(v.x, v.z) * factor;
+    },
+    roll(vx, vz, quiet = false) {
+      const b = body.current;
+      if (!b || !b.isEnabled()) return;
+      b.setLinvel({ x: vx, y: b.linvel().y, z: vz }, true);
+      b.setAngvel({ x: 0, y: 0, z: 0 }, true);
+      if (quiet) lastSpeed.current = Math.hypot(vx, vz);
     },
     setDamping(factor) {
       body.current?.setLinearDamping(BALL.damping * factor);
