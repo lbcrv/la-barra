@@ -7,7 +7,7 @@ import { strings, type Lang } from "./strings";
 export function Radio({ lang, line }: { lang: Lang; line: { text: string; id: number } | null }) {
   if (!line) return null;
   return (
-    <div className="pointer-events-none absolute bottom-20 left-3 max-w-[18rem] sm:bottom-16 sm:left-5 sm:max-w-xs">
+    <div className="pointer-events-none absolute bottom-28 left-3 max-w-72 sm:bottom-20 sm:left-5 sm:max-w-xs">
       <div key={line.id} className="toon-panel anim-pop relative px-4 py-2.5" style={{ borderRadius: 16 }}>
         <p className="font-sign text-xs tracking-wider text-red uppercase">
           {NARRATOR} · {strings[lang].radio}

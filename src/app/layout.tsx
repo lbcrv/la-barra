@@ -1,10 +1,12 @@
 import type { Metadata } from "next";
-import { Alfa_Slab_One, Barlow_Condensed } from "next/font/google";
+import { Alfa_Slab_One, Barlow_Condensed, Caveat_Brush } from "next/font/google";
 import "./globals.css";
 
-// Hand-painted shop signs for headings, a condensed sports face for everything else.
+// Hand-painted shop signs for headings, a condensed sports face for everything
+// else, and chalk on the shop's price board.
 const sign = Alfa_Slab_One({ variable: "--font-alfa-slab", subsets: ["latin"], weight: "400" });
 const body = Barlow_Condensed({ variable: "--font-barlow", subsets: ["latin"], weight: ["400", "600"] });
+const chalk = Caveat_Brush({ variable: "--font-caveat", subsets: ["latin"], weight: "400" });
 
 const title = "La Barra · Futbolito de pulpería";
 const description = "Futbolito de mesa en 3D, gratis en el navegador: contra la compu, 2 jugadores en el mismo teclado o en línea con un código de sala.";
@@ -18,7 +20,7 @@ export const metadata: Metadata = {
 
 export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
-    <html lang="es" className={`${sign.variable} ${body.variable} h-full antialiased`}>
+    <html lang="es" className={`${sign.variable} ${body.variable} ${chalk.variable} h-full antialiased`}>
       <body className="h-full">{children}</body>
     </html>
   );

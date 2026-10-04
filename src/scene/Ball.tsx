@@ -78,8 +78,10 @@ export const Ball = forwardRef<
     onHit?: (strength: number, kind: "kick" | "wall", vx: number) => void;
     /** On fire: an orange trail and a glow. */
     hot?: boolean;
+    /** The match is paused: the ball's clocks for a stuck or stranded ball stop too. */
+    frozen?: boolean;
   }
->(function Ball({ onDead, onHit, hot = false }, ref) {
+>(function Ball({ onDead, onHit, hot = false, frozen = false }, ref) {
   const body = useRef<RapierRigidBody>(null);
   const lastSpeed = useRef(0);
   const still = useRef(0);
@@ -198,7 +200,7 @@ export const Ball = forwardRef<
   // A ball that stops where no player can reach it is dead; serve again.
   useFrame((_, dt) => {
     const b = body.current;
-    if (!b || !live.current) return;
+    if (!b || !live.current || frozen) return;
     const v = b.linvel();
     const speed = Math.hypot(v.x, v.z);
     // A sudden gain in speed is a kick; a sudden loss near a wall is a bounce.

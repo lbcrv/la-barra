@@ -11,6 +11,7 @@ A cartoon table football game for the browser, set in a Honduran corner shop. At
 - **Three ways to play.** Against the computer (easy, normal, hard), two players on one keyboard, or online with a four-letter room code.
 - **Real physics under the cartoon.** The table, ball and rods are real size (1.20 × 0.68 m field, 35 mm ball) and simulated with Rapier at 480 Hz, so a full-power kick meets the ball instead of passing through it.
 - **Arcade on top.** First to five, nine players a side (three in midfield, so there is room to get past it), and passes between rods. Bottle caps drop onto the field with powers (fire, turbo, rust, ice). Don Chepe calls the match from the shop's radio.
+- **Options and accessibility.** Volume, picture quality and language; reduced motion, camera shake, three text sizes, high contrast, narrator subtitles and the controls reminder, all remembered in the browser. Every window works from the keyboard, and the two crests differ in shape as well as colour.
 - **Everything drawn in code.** Toon shading and ink outlines, seeded players who each look different, the shop wall and its signs, confetti, and every sound synthesized with Web Audio. No models, images or audio files.
 
 ## Controls

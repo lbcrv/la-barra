@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { CODE_LENGTH, readCode } from "@/net/protocol";
 import { hostRoom, joinRoom, type GuestSession, type HostSession } from "@/net/session";
+import { Board } from "./Menu";
 import { strings, type Lang } from "./strings";
 
 type Stage = { at: "choose" } | { at: "hosting"; code: string | null } | { at: "joining"; busy: boolean } | { at: "error"; message: string };
@@ -80,9 +81,9 @@ export function Online({
   const inviteLink = (c: string) => `${window.location.origin}${window.location.pathname}?sala=${c}`;
 
   return (
-    <div className="absolute inset-0 flex items-center justify-center p-4">
-      <div className="toon-panel anim-rise w-full max-w-md px-6 py-7 text-center sm:px-9">
-        <h2 className="toon-text text-4xl text-gold">{t.title}</h2>
+    <div className="absolute inset-0 flex items-center justify-center overflow-y-auto p-4">
+      <Board className="anim-rise my-auto w-full max-w-md text-center">
+        <h2 className="font-chalk text-5xl text-gold">{t.title}</h2>
 
         {stage.at === "choose" && (
           <div className="mt-7 grid grid-cols-2 gap-3">
@@ -134,7 +135,7 @@ export function Online({
               autoComplete="off"
               spellCheck={false}
               disabled={stage.busy}
-              className="font-sign mt-2 block w-full rounded-xl border-[3px] border-ink bg-white px-3 py-2 text-center text-5xl tracking-[0.3em] uppercase outline-none"
+              className="font-sign mt-2 block w-full rounded-xl border-[3px] border-ink bg-cream px-3 py-2 text-center text-5xl tracking-[0.3em] text-ink uppercase"
               placeholder="ABCD"
             />
             <button type="submit" disabled={stage.busy || !readCode(code)} className="toon-button mt-4 bg-blue text-cream disabled:opacity-40">
@@ -143,12 +144,16 @@ export function Online({
           </form>
         )}
 
-        {stage.at === "error" && <p className="mt-6 text-lg font-semibold text-red">{stage.message}</p>}
+        {stage.at === "error" && (
+          <p className="mt-6 rounded-lg border-[3px] border-ink bg-red px-3 py-2 text-lg font-semibold text-cream" role="alert">
+            {stage.message}
+          </p>
+        )}
 
-        <button onClick={back} className="mt-6 cursor-pointer text-sm font-semibold tracking-widest uppercase underline-offset-4 hover:underline">
+        <button onClick={back} className="font-chalk mt-6 min-h-11 cursor-pointer px-3 text-2xl underline-offset-4 hover:underline">
           {t.back}
         </button>
-      </div>
+      </Board>
     </div>
   );
 }

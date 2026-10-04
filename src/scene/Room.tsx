@@ -127,6 +127,7 @@ export function CameraRig({
   resetKey,
   spin = false,
   shakeRef,
+  shakeScale = 1,
   flip = false,
 }: {
   resetKey: number;
@@ -135,6 +136,8 @@ export function CameraRig({
   flip?: boolean;
   /** Shake strength, 0 to 1; anyone can bump it and it fades on its own. */
   shakeRef?: RefObject<number>;
+  /** How much of the shake to show: 0 when the player turned it off. */
+  shakeScale?: number;
 }) {
   const { camera, size } = useThree();
   const nudge = useRef(new Vector3());
@@ -147,7 +150,7 @@ export function CameraRig({
   // ...and put a fresh one on after, so the shake never drifts the view.
   useFrame((_, dt) => {
     if (!shakeRef || shakeRef.current <= 0.001) return;
-    const s = shakeRef.current * 0.012;
+    const s = shakeRef.current * 0.012 * shakeScale;
     nudge.current.set((Math.random() - 0.5) * s, (Math.random() - 0.5) * s, (Math.random() - 0.5) * s);
     camera.position.add(nudge.current);
     shakeRef.current *= Math.exp(-dt * 7);

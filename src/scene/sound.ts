@@ -7,6 +7,8 @@
 export type Cue = "kick" | "wall" | "goal" | "bead" | "power" | "whistle";
 
 const STORAGE_KEY = "la-barra:sound";
+/** Loudness at full volume: the cues are mixed to sit under this. */
+const FULL = 0.55;
 
 let ctx: AudioContext | null = null;
 let master: GainNode | null = null;
@@ -35,6 +37,14 @@ export function setSoundOn(on: boolean) {
   listeners.forEach((l) => l());
 }
 
+let volume = 0.8;
+
+/** Master volume, 0 to 1, from the options screen. */
+export function setVolume(v: number) {
+  volume = Math.max(0, Math.min(1, v));
+  if (master) master.gain.value = FULL * volume;
+}
+
 export function subscribeSound(l: () => void) {
   listeners.add(l);
   return () => listeners.delete(l);
@@ -48,7 +58,7 @@ function audio(): AudioContext | null {
     if (!Ctor) return null;
     ctx = new Ctor();
     master = ctx.createGain();
-    master.gain.value = 0.55;
+    master.gain.value = FULL * volume;
     master.connect(ctx.destination);
     noise = ctx.createBuffer(1, ctx.sampleRate * 2, ctx.sampleRate);
     const d = noise.getChannelData(0);
@@ -91,7 +101,7 @@ function tone(a: AudioContext, at: number, o: { type: OscillatorType; from: numb
 
 /** Plays a cue. `strength` (0 to 1) scales hits so soft taps are quiet. */
 export function play(cue: Cue, strength = 1) {
-  if (!soundOn()) return;
+  if (!soundOn() || volume === 0) return;
   const a = audio();
   if (!a || !master || !noise) return;
   const t = a.currentTime + 0.005;

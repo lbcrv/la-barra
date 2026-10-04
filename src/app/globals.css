@@ -12,6 +12,9 @@
   --blue: #2563c9;
   --gold: #f2b632;
   --green: #2f8f46;
+  --wood: #6b4226;
+  --board: #22392c;
+  --chalk: #f1ecdf;
 }
 
 @theme inline {
@@ -22,8 +25,12 @@
   --color-blue: var(--blue);
   --color-gold: var(--gold);
   --color-green: var(--green);
+  --color-wood: var(--wood);
+  --color-board: var(--board);
+  --color-chalk: var(--chalk);
   --font-sign: var(--font-alfa-slab);
   --font-sans: var(--font-barlow);
+  --font-chalk: var(--font-caveat);
 }
 
 html,
@@ -82,6 +89,236 @@ body {
   .hud-link:hover {
     color: var(--cream);
   }
+
+  /* The shop's painted sign: mustard board, a red pinstripe, red lettering. */
+  .shop-sign {
+    background: var(--gold);
+    color: var(--ink);
+    border: 3px solid var(--ink);
+    border-radius: 12px;
+    box-shadow:
+      inset 0 0 0 6px var(--gold),
+      inset 0 0 0 8.5px var(--red),
+      6px 6px 0 var(--ink);
+  }
+  .sign-title {
+    font-family: var(--font-alfa-slab), serif;
+    color: var(--red);
+    -webkit-text-stroke: 2.5px var(--ink);
+    paint-order: stroke fill;
+    text-shadow: 3px 3px 0 var(--ink);
+    line-height: 1;
+  }
+
+  /* The price board: chalk on green slate in a wooden frame. */
+  .chalkboard {
+    background: var(--board);
+    color: var(--chalk);
+    border: 12px solid var(--wood);
+    border-radius: 10px;
+    box-shadow:
+      inset 0 0 0 3px rgb(0 0 0 / 0.3),
+      0 0 0 3px var(--ink),
+      8px 8px 0 3px var(--ink);
+  }
+  .chalk-button {
+    display: flex;
+    width: 100%;
+    align-items: center;
+    gap: 0.75rem;
+    min-height: 3.25rem;
+    padding: 0.4rem 0.75rem;
+    border: 2px dashed transparent;
+    border-radius: 10px;
+    text-align: left;
+    cursor: pointer;
+    transition:
+      border-color 150ms ease-out,
+      background-color 150ms ease-out;
+  }
+  .chalk-button:hover {
+    border-color: color-mix(in srgb, var(--chalk) 55%, transparent);
+    background: rgb(255 255 255 / 0.05);
+  }
+  .chalk-rule {
+    border: 0;
+    border-top: 2px dashed color-mix(in srgb, var(--chalk) 35%, transparent);
+  }
+
+  /* A bottle cap to press: it lifts and tips when pointed at. */
+  .cap-button {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.15rem;
+    border-radius: 14px;
+    padding: 0.25rem 0.35rem;
+    cursor: pointer;
+  }
+  .cap-button svg {
+    transition: transform 140ms ease-out;
+    filter: drop-shadow(3px 3px 0 var(--ink));
+  }
+  .cap-button:hover svg {
+    transform: translateY(-3px) rotate(-10deg);
+  }
+  .cap-button:active svg {
+    transform: scale(0.94);
+  }
+
+  /* A square button with an icon, at least a fingertip wide. */
+  .icon-button {
+    display: inline-flex;
+    min-width: 2.75rem;
+    height: 2.75rem;
+    align-items: center;
+    justify-content: center;
+    gap: 0.4rem;
+    padding: 0 0.6rem;
+    background: var(--cream);
+    color: var(--ink);
+    border: 3px solid var(--ink);
+    border-radius: 12px;
+    box-shadow: 3px 3px 0 var(--ink);
+    font-family: var(--font-alfa-slab), serif;
+    font-size: 0.9rem;
+    cursor: pointer;
+    transition:
+      transform 80ms ease-out,
+      box-shadow 80ms ease-out;
+  }
+  .icon-button:active {
+    transform: translate(2px, 2px);
+    box-shadow: 1px 1px 0 var(--ink);
+  }
+  .icon-button svg {
+    width: 1.35rem;
+    height: 1.35rem;
+    flex: none;
+  }
+
+  /* An on/off switch with an ink outline. */
+  .switch {
+    position: relative;
+    width: 3.5rem;
+    height: 2rem;
+    flex: none;
+    border: 3px solid var(--ink);
+    border-radius: 999px;
+    background: #d9cfb8;
+    cursor: pointer;
+    transition: background-color 150ms ease-out;
+  }
+  .switch::after {
+    content: "";
+    position: absolute;
+    top: 2px;
+    left: 2px;
+    width: 1.3rem;
+    height: 1.3rem;
+    border: 2.5px solid var(--ink);
+    border-radius: 999px;
+    background: var(--cream);
+    transition: transform 150ms ease-out;
+  }
+  .switch[aria-checked="true"] {
+    background: var(--green);
+  }
+  .switch[aria-checked="true"]::after {
+    transform: translateX(1.5rem);
+  }
+
+  /* A row of choices where one is picked. */
+  .segmented {
+    display: inline-flex;
+    flex-wrap: wrap;
+    border: 3px solid var(--ink);
+    border-radius: 12px;
+    overflow: hidden;
+    background: var(--cream);
+  }
+  .segmented button {
+    min-height: 2.5rem;
+    padding: 0 0.85rem;
+    font-weight: 600;
+    cursor: pointer;
+  }
+  .segmented button + button {
+    border-left: 3px solid var(--ink);
+  }
+  .segmented button[aria-checked="true"] {
+    background: var(--gold);
+    font-family: var(--font-alfa-slab), serif;
+    font-weight: 400;
+  }
+
+  .toon-range {
+    width: 100%;
+    height: 2rem;
+    appearance: none;
+    background: transparent;
+    cursor: pointer;
+  }
+  .toon-range::-webkit-slider-runnable-track {
+    height: 0.75rem;
+    border: 3px solid var(--ink);
+    border-radius: 999px;
+    background: var(--cream);
+  }
+  .toon-range::-moz-range-track {
+    height: 0.4rem;
+    border: 3px solid var(--ink);
+    border-radius: 999px;
+    background: var(--cream);
+  }
+  .toon-range::-webkit-slider-thumb {
+    appearance: none;
+    width: 1.5rem;
+    height: 1.5rem;
+    margin-top: -0.55rem;
+    border: 3px solid var(--ink);
+    border-radius: 999px;
+    background: var(--gold);
+  }
+  .toon-range::-moz-range-thumb {
+    width: 1.1rem;
+    height: 1.1rem;
+    border: 3px solid var(--ink);
+    border-radius: 999px;
+    background: var(--gold);
+  }
+
+  /* Text drawn over the table during play. */
+  .hint-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    padding: 0.2rem 0.65rem;
+    border-radius: 999px;
+    background: rgb(27 20 16 / 0.72);
+    color: var(--cream);
+    font-weight: 600;
+  }
+}
+
+/* Accessibility, from the options screen. */
+html[data-contrast="high"] .hint-chip {
+  background: var(--ink);
+  outline: 2px solid var(--cream);
+}
+html[data-contrast="high"] .hud-link {
+  color: var(--cream);
+}
+html[data-contrast="high"] .chalk-button {
+  border-color: color-mix(in srgb, var(--chalk) 45%, transparent);
+}
+html[data-motion="reduce"] .anim-pop,
+html[data-motion="reduce"] .anim-rise {
+  animation: none !important;
+}
+html[data-motion="reduce"] .cap-button svg,
+html[data-motion="reduce"] .cap-button:hover svg {
+  transform: none;
 }
 
 @keyframes pop-in {

@@ -14,8 +14,11 @@ import { TEAMS, type Side } from "@/game/teams";
 import { Hud, Victory } from "@/ui/Hud";
 import { Menu } from "@/ui/Menu";
 import { Online } from "@/ui/Online";
+import { Options, type OptionsTab } from "@/ui/Options";
+import { Pause } from "@/ui/Pause";
 import { Ping } from "@/ui/Ping";
 import { Radio } from "@/ui/Radio";
+import { useSettings } from "@/ui/settings";
 import { strings, type Lang } from "@/ui/strings";
 import { PING_EVERY_MS, PING_LOST_MS, q, readCode, SnapshotBuffer, SNAPSHOT_HZ, type HandInput, type Snapshot, type ToGuest, type ToHost } from "@/net/protocol";
 import type { GuestSession, HostSession } from "@/net/session";
@@ -30,7 +33,7 @@ import { CameraRig, Fill, Lamp } from "./Room";
 import { Mirror, SyncMeshes } from "./Mirror";
 import { Rods, type RemoteRods } from "./Rods";
 import { Scoreboard } from "./Scoreboard";
-import { play as sfx, type Cue } from "./sound";
+import { setVolume, play as sfx, type Cue } from "./sound";
 import { Table } from "./Table";
 
 /** Pause after a goal before the next ball rolls in, so the goal can land. */
@@ -72,7 +75,22 @@ const now = () => performance.now() / 1000;
 const HUMANS: Record<Mode | "demo", Side[]> = { demo: [], bot: ["red"], local: ["red", "blue"], online: ["red", "blue"] };
 
 export function Game() {
-  const [lang, setLang] = useState<Lang>("es");
+  // Spanish first; a choice of English is remembered in this browser.
+  const [lang, setLangState] = useState<Lang>(() => {
+    try {
+      return localStorage.getItem("la-barra:lang") === "en" ? "en" : "es";
+    } catch {
+      return "es";
+    }
+  });
+  const setLang = useCallback((l: Lang) => {
+    setLangState(l);
+    try {
+      localStorage.setItem("la-barra:lang", l);
+    } catch {
+      // Remembered for this visit only.
+    }
+  }, []);
   // Null while the menu is up and the bots play a demo behind it.
   const [match, setMatch] = useState<Match | null>(null);
   const [view, setView] = useState(0);
@@ -128,6 +146,15 @@ export function Game() {
   // A right-button or two-finger tap that may turn out to be a pass, and the fingers down.
   const passTap = useRef<{ at: number; x: number; y: number } | null>(null);
   const touches = useRef(new Set<number>());
+
+  // The options window (open at a tab, or closed), the pause window, and the
+  // player's settings. While a window is open the game's keys are ignored.
+  const [options, setOptions] = useState<OptionsTab | null>(null);
+  const [paused, setPaused] = useState(false);
+  const overlay = useRef(false);
+  const settings = useSettings();
+  // Only a local match really stops; online the host's table keeps going.
+  const frozen = paused && role === "local";
 
   /** Answers a ping, or takes in a pong; shared by host and guest. */
   const onPing = useCallback((msg: { t: "ping" | "pong"; at: number }) => {
@@ -225,6 +252,7 @@ export function Game() {
 
   const play = useCallback(
     (mode: Mode, level: Level) => {
+      setPaused(false);
       setUp(mode, level);
       update(newMatch(mode, level));
       fx("whistle");
@@ -235,6 +263,7 @@ export function Game() {
   );
 
   const toMenu = useCallback(() => {
+    setPaused(false);
     setUp("demo", "normal");
     update(null);
   }, [setUp, update]);
@@ -321,7 +350,22 @@ export function Game() {
 
   useEffect(() => {
     langRef.current = lang;
+    document.documentElement.lang = lang;
   }, [lang]);
+
+  // The settings that live outside React: volume, and the page-wide text size,
+  // contrast and motion that the stylesheet reads.
+  useEffect(() => {
+    setVolume(settings.volume);
+    const root = document.documentElement;
+    root.style.fontSize = `${settings.textSize * 100}%`;
+    root.dataset.contrast = settings.contrast ? "high" : "normal";
+    root.dataset.motion = settings.reduceMotion ? "reduce" : "full";
+  }, [settings.volume, settings.textSize, settings.contrast, settings.reduceMotion]);
+
+  useEffect(() => {
+    overlay.current = paused || options !== null;
+  }, [paused, options]);
 
   const setOnlineRole = useCallback((r: "local" | "host" | "guest") => {
     roleRef.current = r;
@@ -568,6 +612,17 @@ export function Game() {
       return key;
     };
     const onDown = (e: KeyboardEvent) => {
+      // A window is open: its own controls have the keys (Escape closes it there).
+      if (overlay.current) return;
+      if (e.code === "Escape" && matchRef.current && matchRef.current.phase !== "over") {
+        e.preventDefault();
+        // Let go of everything held, so nothing keeps sliding or charging behind the window.
+        for (const side of ["red", "blue"] as const) Object.assign(inputs.current[side], { kick: false, keyDir: 0 });
+        held.red.clear();
+        held.blue.clear();
+        setPaused(true);
+        return;
+      }
       if (e.code === "Space" && matchRef.current?.phase === "playing" && roleRef.current !== "guest") {
         e.preventDefault();
         serve();
@@ -639,15 +694,16 @@ export function Game() {
   // The local mouse plays red, or blue for the online guest.
   const mouseSide: Side = mine;
   const mousePlays = !!match && (role !== "local" || HUMANS[match.mode].includes("red"));
-  const toggleLang = () => setLang((l) => (l === "es" ? "en" : "es"));
+  const toggleLang = () => setLang(lang === "es" ? "en" : "es");
 
   return (
     <div className="relative h-dvh w-full select-none">
       <Canvas
-        shadows="percentage"
+        shadows={settings.quality === "high" ? "percentage" : false}
         camera={{ fov: 38, near: 0.05, far: 20 }}
-        // Sharp enough on high-density screens without rendering four times the pixels.
-        dpr={[1, 1.5]}
+        // Sharp enough on high-density screens without rendering four times the
+        // pixels; on low quality, one pixel per screen pixel at most.
+        dpr={settings.quality === "high" ? [1, 1.5] : 1}
         // Left button kicks; a quick tap of the right one passes, and dragging it turns the camera.
         onPointerMove={() => {
           if (mousePlays) aiming.current = true;
@@ -674,12 +730,18 @@ export function Game() {
         onContextMenu={(e) => e.preventDefault()}
       >
         <Fill />
-        <CameraRig resetKey={view} spin={!match && !lobby} shakeRef={shake} flip={role === "guest"} />
+        <CameraRig
+          resetKey={view}
+          spin={!match && !lobby}
+          shakeRef={shake}
+          shakeScale={settings.shake && !settings.reduceMotion ? 1 : 0}
+          flip={role === "guest"}
+        />
         <Backdrop />
         <Scoreboard score={match?.score ?? { red: 0, blue: 0 }} />
-        <Confetti burst={burst.n} side={burst.scorer} goalOf={burst.conceded} />
+        {!settings.reduceMotion && <Confetti burst={burst.n} side={burst.scorer} goalOf={burst.conceded} />}
         <PowerField
-          running={match?.phase === "playing" && role !== "guest"}
+          running={match?.phase === "playing" && role !== "guest" && !frozen}
           ballRef={ball}
           onTake={onTake}
           capOutRef={capOut}
@@ -696,9 +758,9 @@ export function Game() {
         />
         <Suspense fallback={null}>
           {/* The online guest simulates nothing: it draws what the host sends. */}
-          <Physics gravity={[0, -9.81, 0]} timeStep={1 / PHYSICS_HZ} paused={role === "guest"}>
+          <Physics gravity={[0, -9.81, 0]} timeStep={1 / PHYSICS_HZ} paused={role === "guest" || frozen}>
             <Table onGoal={onGoal} goals={burst.n} goalOf={burst.conceded} />
-            <Ball ref={ball} onDead={restartBall} onHit={onHit} hot={hot} />
+            <Ball ref={ball} onDead={restartBall} onHit={onHit} hot={hot} frozen={frozen} />
             <BotDriver botsRef={bots} inputsRef={inputs} ballRef={ball} slidesRef={slides} />
             <Rods
               inputsRef={inputs}
@@ -722,7 +784,14 @@ export function Game() {
       </Canvas>
 
       {!match && !lobby && role === "local" && (
-        <Menu lang={lang} onLang={toggleLang} onPlay={play} online={() => setLobby({ code: null, notice: null })} />
+        <Menu
+          lang={lang}
+          onLang={toggleLang}
+          onPlay={play}
+          online={() => setLobby({ code: null, notice: null })}
+          onOptions={() => setOptions("look")}
+          onGuide={() => setOptions("controls")}
+        />
       )}
       {lobby && role === "local" && (
         <Online
@@ -738,13 +807,15 @@ export function Game() {
         <Hud
           lang={lang}
           match={match}
-          onMenu={() => (role === "local" ? toMenu() : leaveOnline(null))}
+          onPause={() => {
+            for (const side of ["red", "blue"] as const) inputs.current[side].kick = false;
+            setPaused(true);
+          }}
           onCamera={() => setView((v) => v + 1)}
-          onLang={toggleLang}
           powers={powers}
         />
       )}
-      {match && <Radio lang={lang} line={line} />}
+      {match && settings.subtitles && <Radio lang={lang} line={line} />}
       {role !== "local" && <Ping ms={ping} lang={lang} relayed={relayed} />}
       {match?.phase === "over" && (
         <Victory
@@ -754,6 +825,17 @@ export function Game() {
           onMenu={() => (role === "local" ? toMenu() : leaveOnline(null))}
         />
       )}
+      {paused && match && match.phase !== "over" && (
+        <Pause
+          lang={lang}
+          online={role !== "local"}
+          onResume={() => setPaused(false)}
+          onOptions={() => setOptions("look")}
+          onRestart={role === "guest" ? null : () => play(match.mode, match.level)}
+          onQuit={() => (role === "local" ? toMenu() : leaveOnline(null))}
+        />
+      )}
+      {options && <Options lang={lang} setLang={setLang} tab={options} onClose={() => setOptions(null)} />}
     </div>
   );
 }
